@@ -1,5 +1,5 @@
 import paper from 'paper';
-import { MutableRefObject } from 'react';
+import type { MutableRefObject } from 'react';
 
 /**
  * Configuration for snap behavior

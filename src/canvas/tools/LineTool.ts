@@ -5,7 +5,6 @@ interface StateManager {
   isDrawingLineRef: React.MutableRefObject<boolean>;
   snapIndicatorRef: React.MutableRefObject<paper.Path.Circle | null>;
   finishCurrentDrawing: () => void;
-  resetNumericInput: () => void;
   getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
   isPanning: boolean;
   isSpacebarPan: boolean;
@@ -18,7 +17,6 @@ export function createLineTool(_canvasRef: React.RefObject<HTMLCanvasElement | n
     isDrawingLineRef,
     snapIndicatorRef,
     finishCurrentDrawing,
-    resetNumericInput,
     getSnapPoint,
     isPanning,
     isSpacebarPan,

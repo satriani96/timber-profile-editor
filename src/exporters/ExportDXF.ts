@@ -15,16 +15,6 @@ interface ArcData extends CircleData {
   sweepAngle: number;
 }
 
-interface PathData {
-  isTemporary?: boolean;
-  center?: paper.Point;
-  radius?: number;
-  isArc?: boolean;
-  startAngle?: number;
-  endAngle?: number;
-  sweepAngle?: number;
-}
-
 /**
  * Exports the current Paper.js canvas content to DXF format
  * and triggers a download of the resulting file

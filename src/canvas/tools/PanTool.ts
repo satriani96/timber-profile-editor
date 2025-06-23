@@ -1,4 +1,3 @@
-import paper from 'paper';
 
 interface StateManager {
   handleDragPan: (event: paper.ToolEvent) => void;
