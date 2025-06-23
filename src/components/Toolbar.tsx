@@ -1,5 +1,5 @@
 import React from 'react';
-import { SketchTool } from '../types';
+import type { SketchTool } from '../types';
 
 interface ToolbarProps {
   activeTool: SketchTool;

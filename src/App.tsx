@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { SketchTool } from './types';
+import { useState, useRef } from 'react';
+import type { SketchTool } from './types';
 import Toolbar from './components/Toolbar';
 
 import SketchCanvas from './components/SketchCanvas';

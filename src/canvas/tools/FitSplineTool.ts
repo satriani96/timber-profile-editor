@@ -195,7 +195,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
   // Only keep the patched finishSpline/cancelSpline implementations (above). Remove any duplicates below if present.
 
 
-  function onMouseUp(event: paper.ToolEvent) {
+  function onMouseUp() {
     // Deselect handle after drag
     if (selectedHandle) {
       const { path, segmentIndex } = selectedHandle;
@@ -214,7 +214,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     }
   }
 
-  function onDoubleClick(event: paper.ToolEvent) {
+  function onDoubleClick() {
     if (isDrawingSplineRef.current) {
       finishSpline();
     }

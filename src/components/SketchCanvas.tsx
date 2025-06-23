@@ -1,14 +1,16 @@
-import React, { useRef, useState, useEffect, useCallback, MutableRefObject } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import type { MutableRefObject } from 'react';
 import paper from 'paper';
-import { SketchTool } from '../types';
+import type { SketchTool } from '../types';
 import { createLineTool } from '../canvas/tools/LineTool';
 import { createSelectTool } from '../canvas/tools/SelectTool';
 import { createSquareTool } from '../canvas/tools/SquareTool';
 import { createCircleTool } from '../canvas/tools/CircleTool';
 import { createFilletTool } from '../canvas/tools/FilletTool';
-import { createFitSplineTool, FitSplineStateManager } from '../canvas/tools/FitSplineTool';
+import { createFitSplineTool } from '../canvas/tools/FitSplineTool';
 import { exportToDXF } from '../exporters/ExportDXF';
-import { getSnapPoint, SnapConfig } from '../utils/snapHelpers';
+import { getSnapPoint } from '../utils/snapHelpers';
+import type { SnapConfig } from '../utils/snapHelpers';
 import NumericInputPanel from './NumericInputPanel';
 import FloatingFinishButton from './FloatingFinishButton';
 import { ImageUpload } from '../canvas/ImageUpload';
@@ -25,7 +27,7 @@ type SketchCanvasHandle = {
 };
 
 const SketchCanvas = (
-  { activeTool, setActiveTool, exportDXFRef }: SketchCanvasProps, ref: React.ForwardedRef<SketchCanvasHandle>
+  { activeTool, setActiveTool, exportDXFRef }: SketchCanvasProps
 ) => {
   // --- Image Trace Integration ---
   const imageUploadRef = useRef<ImageUpload | null>(null);
@@ -35,7 +37,7 @@ const SketchCanvas = (
   const [calibrateActive, setCalibrateActive] = useState(false);
   const [imageVersion, setImageVersion] = useState(0);
   const [hasImage, setHasImage] = useState(false);
-  const [paperReady, setPaperReady] = useState(false);
+  const [paperReady] = useState(false);
   const [queuedImageFile, setQueuedImageFile] = useState<File | null>(null);
 
   // Called when an image is uploaded from the toolbar
@@ -154,7 +156,7 @@ const SketchCanvas = (
   const [isPanning, setIsPanning] = useState(false);
   const [isSpacebarPan, setIsSpacebarPan] = useState(false);
   const [isNumericInputActive, setIsNumericInputActive] = useState(false);
-  const [isNumericInputVisible, setNumericInputVisible] = useState(false);
+
   const [lengthInputValue, setLengthInputValue] = useState('');
   const [angleInputValue, setAngleInputValue] = useState('');
   const [numericInputPosition, setNumericInputPosition] = useState<{ x: number; y: number } | null>(null);
@@ -173,7 +175,7 @@ const SketchCanvas = (
   // --- Memoized Event Handlers ---
   const resetNumericInput = useCallback(() => {
     setIsNumericInputActive(false);
-    setNumericInputVisible(false);
+    // setNumericInputVisible(false);
     setLengthInputValue('');
     setAngleInputValue('');
     setWidthInputValue('');
