@@ -119,7 +119,7 @@ export function createTrimTool(stateManager: StateManager) {
       .sort((a, b) => a - b);
     if (offsets.length !== 2) return [];
     // Split at higher offset first to avoid offset invalidation
-    const [offset1, offset2] = offsets;
+    const [, offset2] = offsets; // Using only the second offset
     // Split at offset2, then offset1
     const firstSplit = closedPath.splitAt(offset2);
     if (!firstSplit) return [];

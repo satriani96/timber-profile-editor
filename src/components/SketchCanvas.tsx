@@ -576,7 +576,9 @@ function SketchCanvas(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Use a constant to ensure TypeScript recognizes 'trim' as a valid SketchTool
     const tool = activeTool;
+    const isTrimTool = (t: SketchTool): boolean => t === 'trim';
     if (tool === 'select' && selectToolRef.current) { selectToolRef.current.activate(); canvas.style.cursor = 'default'; }
     else if (tool === 'line' && lineToolRef.current) { lineToolRef.current.activate(); canvas.style.cursor = 'crosshair'; }
     else if (tool === 'square' && squareToolRef.current) { squareToolRef.current.activate(); canvas.style.cursor = 'crosshair'; }
@@ -597,7 +599,7 @@ function SketchCanvas(
       setSplineSegmentCount(0);
       fitSplineToolRef.current.activate();
       canvas.style.cursor = 'crosshair';
-    } else if ((tool as SketchTool) === 'trim' && trimToolRef.current) {
+    } else if (isTrimTool(tool) && trimToolRef.current) {
       trimToolInstanceRef.current?.onActivate?.();
       trimToolRef.current.activate();
       canvas.style.cursor = 'crosshair';
