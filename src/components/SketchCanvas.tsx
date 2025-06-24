@@ -597,7 +597,7 @@ function SketchCanvas(
       setSplineSegmentCount(0);
       fitSplineToolRef.current.activate();
       canvas.style.cursor = 'crosshair';
-    } else if (tool === 'trim' && trimToolRef.current) {
+    } else if ((tool as SketchTool) === 'trim' && trimToolRef.current) {
       trimToolInstanceRef.current?.onActivate?.();
       trimToolRef.current.activate();
       canvas.style.cursor = 'crosshair';
