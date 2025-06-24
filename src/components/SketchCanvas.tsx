@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+
+const BASE_STROKE_WIDTH = 2; // All strokes will appear as this width visually
 import type { MutableRefObject } from 'react';
 import paper from 'paper';
 import type { SketchTool } from '../types';
@@ -8,6 +10,7 @@ import { createSquareTool } from '../canvas/tools/SquareTool';
 import { createCircleTool } from '../canvas/tools/CircleTool';
 import { createFilletTool } from '../canvas/tools/FilletTool';
 import { createFitSplineTool } from '../canvas/tools/FitSplineTool';
+import { createTrimTool } from '../canvas/tools/TrimTool';
 import { exportToDXF } from '../exporters/ExportDXF';
 import { getSnapPoint } from '../utils/snapHelpers';
 import type { SnapConfig } from '../utils/snapHelpers';
@@ -15,6 +18,7 @@ import NumericInputPanel from './NumericInputPanel';
 import FloatingFinishButton from './FloatingFinishButton';
 import { ImageUpload } from '../canvas/ImageUpload';
 import ImageSideToolbar from './ImageSideToolbar';
+import ZoomLevelIndicator from './ZoomLevelIndicator';
 
 interface SketchCanvasProps {
   activeTool: SketchTool;
@@ -26,19 +30,23 @@ type SketchCanvasHandle = {
   handleUploadImage: (file: File) => void;
 };
 
-const SketchCanvas = (
-  { activeTool, setActiveTool, exportDXFRef }: SketchCanvasProps
-) => {
+function SketchCanvas(
+  { activeTool, setActiveTool, exportDXFRef }: SketchCanvasProps,
+  ref: React.ForwardedRef<SketchCanvasHandle>
+) {
   // --- Image Trace Integration ---
   const imageUploadRef = useRef<ImageUpload | null>(null);
+  // Markers for calibration points (tracked only in ref)
+  const calibrationMarkersRef = useRef<paper.Path.Circle[]>([]);
 
   // State for image visibility, calibration, and image version (for forced re-render)
   const [imageVisible, setImageVisible] = useState(true);
   const [calibrateActive, setCalibrateActive] = useState(false);
   const [imageVersion, setImageVersion] = useState(0);
   const [hasImage, setHasImage] = useState(false);
-  const [paperReady] = useState(false);
+  const [paperReady, setPaperReady] = useState(false);
   const [queuedImageFile, setQueuedImageFile] = useState<File | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   // Called when an image is uploaded from the toolbar
   const handleUploadImage = useCallback((file: File) => {
@@ -70,10 +78,75 @@ const SketchCanvas = (
     reader.readAsDataURL(file);
   }, [paperReady]);
 
+  // Expose handleUploadImage via imperative handle
+  React.useImperativeHandle(ref, () => ({ handleUploadImage }), [handleUploadImage]);
+
+  // --- Calibration Click Handler ---
+  useEffect(() => {
+    if (!calibrateActive) return;
+    if (!paperReady || !imageUploadRef.current) return;
+
+    const handleCalibrateClick = (event: MouseEvent) => {
+      // Only respond to left clicks
+      if (event.button !== 0) return;
+      // Get click point in project coords
+      const rect = (event.target as HTMLCanvasElement).getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const x = (event.clientX - rect.left) * dpr;
+      const y = (event.clientY - rect.top) * dpr;
+      const point = paper.view.viewToProject(new paper.Point(x / dpr, y / dpr));
+      if (!imageUploadRef.current) return;
+      imageUploadRef.current.setCalibrationPoint(point);
+      // Draw marker
+      const marker = new paper.Path.Circle({
+        center: point,
+        radius: 6 / paper.view.zoom,
+        fillColor: new paper.Color('blue'),
+        strokeColor: new paper.Color('white'),
+        strokeWidth: 2 / paper.view.zoom,
+        opacity: 0.7,
+        data: { isTemporary: true }
+      });
+      calibrationMarkersRef.current.push(marker);
+      // If two points, prompt for distance
+      if (imageUploadRef.current && imageUploadRef.current.state.calibrationPoints.length === 2) {
+        setTimeout(() => {
+          const input = window.prompt('Enter real-world distance between the two points (mm):', '100');
+          if (input) {
+            const dist = parseFloat(input);
+            if (!isNaN(dist) && dist > 0 && imageUploadRef.current) {
+              imageUploadRef.current.calibrate(dist);
+            } else {
+              alert('Invalid distance. Calibration cancelled.');
+            }
+          }
+          // Clean up markers and calibration state
+          // Remove all calibration markers (from ref to avoid stale closure)
+          calibrationMarkersRef.current.forEach(m => m.remove());
+          calibrationMarkersRef.current = [];
+          if (imageUploadRef.current) imageUploadRef.current.state.calibrationPoints = [];
+          setCalibrateActive(false);
+        }, 200); // Wait a bit for marker to render
+      }
+    };
+    const canvas = canvasRef.current;
+    if (canvas) canvas.addEventListener('mousedown', handleCalibrateClick);
+    return () => {
+      if (canvas) canvas.removeEventListener('mousedown', handleCalibrateClick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calibrateActive, paperReady]);
+
   // --- Paper.js Canvas Size Sync ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    paper.setup(canvas);
+    setPaperReady(true);
+    setZoom(paper.view.zoom);
+    // Remove non-existent Paper.js zoom event listener
+    // Instead, update zoom state after any zoom change elsewhere
+
     function resizePaperCanvas() {
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -113,6 +186,16 @@ const SketchCanvas = (
     }
   }, [paperReady, queuedImageFile, handleUploadImage]);
 
+  // --- Helper: update all stroke widths to match current zoom ---
+  const updateAllStrokeWidths = useCallback(() => {
+    if (!paperReady) return;
+    paper.project.activeLayer.children.forEach(item => {
+      if (item instanceof paper.Path && !item.data?.isTemporary && item.visible) {
+        item.strokeWidth = BASE_STROKE_WIDTH / paper.view.zoom;
+      }
+    });
+  }, [paperReady]);
+
   // Spline drawing state for UI
   const [isSplineDrawing, setIsSplineDrawing] = useState(false);
   const [splineSegmentCount, setSplineSegmentCount] = useState(0);
@@ -125,6 +208,8 @@ const SketchCanvas = (
   const panToolRef = useRef<paper.Tool | null>(null);
   const filletToolRef = useRef<paper.Tool | null>(null);
   const filletToolInstanceRef = useRef<ReturnType<typeof createFilletTool> | null>(null);
+  const trimToolRef = useRef<paper.Tool | null>(null);
+  const trimToolInstanceRef = useRef<ReturnType<typeof createTrimTool> | null>(null);
 
   // FitSplineTool refs and state
   const fitSplineToolRef = useRef<paper.Tool | null>(null);
@@ -133,11 +218,13 @@ const SketchCanvas = (
   const isDrawingSplineRef = useRef<boolean>(false);
   const selectedSplinePointRef = useRef<{ path: paper.Path, index: number } | null>(null);
   const finishCurrentSpline = useCallback(() => {
-    // Optionally trigger a re-render or update UI
-    // For now, just clear the currentSplineRef
+    // This function is now just for UI state cleanup after the tool has finished its work.
     currentSplineRef.current = null;
     isDrawingSplineRef.current = false;
     selectedSplinePointRef.current = null;
+    // Update UI state
+    setIsSplineDrawing(false);
+    setSplineSegmentCount(0);
   }, []);
   const lastFilletRadiusRef = useRef<number>(10);
   const previousToolRef = useRef<SketchTool>('select');
@@ -277,9 +364,11 @@ const SketchCanvas = (
     const viewPosition = view.viewToProject(mousePosition);
     const newZoom = event.deltaY < 0 ? oldZoom * 1.1 : oldZoom / 1.1;
     view.zoom = newZoom;
+    setZoom(newZoom);
     const newViewPosition = view.viewToProject(mousePosition);
     view.center = view.center.add(viewPosition.subtract(newViewPosition));
-  }, []);
+    updateAllStrokeWidths();
+  }, [updateAllStrokeWidths]);
 
   const handleRightMouseDown = useCallback((e: MouseEvent) => {
     if (e.button === 2) { setIsPanning(true); e.preventDefault(); }
@@ -386,7 +475,11 @@ const SketchCanvas = (
       setIsSplineDrawing,
       setSplineSegmentCount
     });
+    
+    // Store the tool instance so the floating button can access it
+    fitSplineToolInstanceRef.current = fitSplineTool;
 
+    // Copy event handlers from our created tool to the paper.js tool
     fitSplineToolRef.current.onMouseDown = fitSplineTool.onMouseDown;
     fitSplineToolRef.current.onMouseDrag = fitSplineTool.onMouseDrag;
     fitSplineToolRef.current.onMouseMove = fitSplineTool.onMouseMove;
@@ -460,6 +553,22 @@ const SketchCanvas = (
       panToolRef.current.onMouseDrag = handleDragPan;
     }
 
+    // --- Trim Tool ---
+    if (!trimToolRef.current) {
+      trimToolRef.current = new paper.Tool();
+    }
+    const trimTool = createTrimTool({
+      finishCurrentDrawing,
+      isPanning,
+      isSpacebarPan,
+      handleDragPan
+    });
+    trimToolInstanceRef.current = trimTool;
+    trimToolRef.current.onMouseMove = trimTool.onMouseMove;
+    trimToolRef.current.onMouseDown = trimTool.onMouseDown;
+    trimToolRef.current.onMouseDrag = trimTool.onMouseDrag;
+    // Do not assign onActivate/onDeactivate as properties; call them directly when needed.
+
   }, [isPanning, isSpacebarPan]);
 
   // --- Tool Activation & Global Listeners ---
@@ -488,9 +597,15 @@ const SketchCanvas = (
       setSplineSegmentCount(0);
       fitSplineToolRef.current.activate();
       canvas.style.cursor = 'crosshair';
+    } else if (tool === 'trim' && trimToolRef.current) {
+      trimToolInstanceRef.current?.onActivate?.();
+      trimToolRef.current.activate();
+      canvas.style.cursor = 'crosshair';
     } else {
       // When switching away from fitspline, ensure drawing mode is off
       if (isDrawingSplineRef.current) isDrawingSplineRef.current = false;
+      // Call onDeactivate for trim tool if present
+      trimToolInstanceRef.current?.onDeactivate?.();
     }
 
     // Update the ref for the next render
@@ -535,14 +650,13 @@ const SketchCanvas = (
         if (!isNaN(width) && width > 0 && !isNaN(height) && height > 0) {
           const rect = currentPathRef.current as paper.Path;
           const topLeft = rect.bounds.topLeft;
-          
           // Remove current rectangle and create new one with specified dimensions
           currentPathRef.current.remove();
           currentPathRef.current = new paper.Path.Rectangle({
             point: topLeft,
             size: new paper.Size(width, height),
             strokeColor: 'black',
-            strokeWidth: 2
+            strokeWidth: BASE_STROKE_WIDTH / paper.view.zoom
           });
           finishCurrentDrawing();
           resetNumericInput();
@@ -553,23 +667,20 @@ const SketchCanvas = (
         if (!isNaN(diameter) && diameter > 0) {
           const circle = currentPathRef.current;
           const center = circle.data.center;
-          
           // Remove current circle and create new one with specified diameter
           currentPathRef.current.remove();
           currentPathRef.current = new paper.Path.Circle({
             center: center,
             radius: diameter / 2,
             strokeColor: 'black',
-            strokeWidth: 2
+            strokeWidth: BASE_STROKE_WIDTH / paper.view.zoom
           });
-          
           // Store metadata for export
           currentPathRef.current.data = {
             center: center,
             radius: diameter / 2,
             isArc: false
           };
-          
           finishCurrentDrawing();
           resetNumericInput();
         }
@@ -597,7 +708,6 @@ const SketchCanvas = (
   useEffect(() => {
     if (isNumericInputActive) {
       let inputToFocus;
-      
       switch (activeNumericInput) {
         case 'length':
           inputToFocus = lengthInputRef.current;
@@ -620,7 +730,6 @@ const SketchCanvas = (
         default:
           inputToFocus = lengthInputRef.current;
       }
-      
       // Give the input time to render before focusing
       setTimeout(() => {
         inputToFocus?.focus();
@@ -631,33 +740,17 @@ const SketchCanvas = (
 
   return (
     <div className="w-full h-full relative">
-
       <canvas
         ref={canvasRef}
         className="w-full h-full bg-gray-100 cursor-crosshair focus:outline-none"
         data-paper-resize
-        tabIndex={0} // Make canvas focusable to receive key events
+        tabIndex={0}
       />
-      {/* Image upload logic is handled via Paper.js raster and ImageUpload module */}
-      {/* Floating finish (tick) button for spline tool */}
-
+      <ZoomLevelIndicator zoom={zoom} />
       <FloatingFinishButton
-        visible={
-          Boolean(
-            activeTool === 'fitspline' &&
-            isSplineDrawing &&
-            splineSegmentCount > 1
-          )
-        }
-        onClick={() => {
-          // Call the real finish logic if present
-          // @ts-expect-error: finishSpline is attached at runtime
-          fitSplineToolInstanceRef.current?.finishSpline?.();
-          // Also run the UI cleanup
-          finishCurrentSpline();
-        }}
+        visible={Boolean(activeTool === 'fitspline' && isSplineDrawing && splineSegmentCount > 1)}
+        onClick={() => fitSplineToolInstanceRef.current?.finishSpline()}
       />
-      {/* Numeric input panel */}
       <NumericInputPanel
         isActive={isNumericInputActive}
         position={numericInputPosition}
@@ -718,4 +811,4 @@ const SketchCanvas = (
   );
 }
 
-export default React.forwardRef<SketchCanvasHandle, SketchCanvasProps>(SketchCanvas);
+export default React.forwardRef(SketchCanvas);

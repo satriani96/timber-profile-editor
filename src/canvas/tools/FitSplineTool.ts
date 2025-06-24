@@ -45,13 +45,13 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
       for (let i = 0; i < path.segments.length; i++) {
         const seg = path.segments[i];
         // Check handleIn
-        if (seg.handleIn && seg.handleIn.length > 0 && seg.point.add(seg.handleIn).getDistance(event.point) < 10) {
+        if (seg.handleIn && seg.handleIn.length > 0 && seg.point.add(seg.handleIn).getDistance(event.point) < 10 / paper.view.zoom) {
           selectedHandle = { path, segmentIndex: i, handleType: 'in' };
           seg.selected = true;
           return;
         }
         // Check handleOut
-        if (seg.handleOut && seg.handleOut.length > 0 && seg.point.add(seg.handleOut).getDistance(event.point) < 10) {
+        if (seg.handleOut && seg.handleOut.length > 0 && seg.point.add(seg.handleOut).getDistance(event.point) < 10 / paper.view.zoom) {
           selectedHandle = { path, segmentIndex: i, handleType: 'out' };
           seg.selected = true;
           return;
@@ -61,7 +61,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
 
     if (isDrawingSplineRef.current) {
       // First, hit test for an existing segment on the current spline
-      const hit = paper.project.hitTest(event.point, { segments: true, tolerance: 10 });
+      const hit = paper.project.hitTest(event.point, { segments: true, tolerance: 10 / paper.view.zoom });
       if (
         hit &&
         hit.segment &&
@@ -88,7 +88,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         const path = new paper.Path({
           segments: [event.point],
           strokeColor: new paper.Color('black'),
-          strokeWidth: 2,
+          strokeWidth: 2 / paper.view.zoom,
           fullySelected: true,
         });
         path.data = { isSpline: true, fitPoints: [event.point.clone()] };
@@ -108,7 +108,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     } else {
       // --- Editing mode ---
       // Hit test for a segment
-      const hit = paper.project.hitTest(event.point, { segments: true, tolerance: 10 });
+      const hit = paper.project.hitTest(event.point, { segments: true, tolerance: 10 / paper.view.zoom });
       if (hit && hit.segment && hit.item && hit.item.data && hit.item.data.isSpline) {
         selectedSplinePointRef.current = { path: hit.item as paper.Path, index: hit.segment.index };
         hit.segment.selected = true;
@@ -168,6 +168,10 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         } else {
           // Add a preview segment to the path
           const added = path.add(event.point);
+          // Ensure preview segment strokeWidth scales with zoom
+          if (Array.isArray(added) ? added[0] : added) {
+            path.strokeWidth = 2 / paper.view.zoom;
+          }
           previewSegment = Array.isArray(added) ? added[0] : added;
         }
         path.fullySelected = true;
@@ -221,15 +225,21 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
   }
 
   function finishSpline() {
-    // Remove preview segment if it exists
+    // Always remove preview segment BEFORE smoothing
     if (previewSegment) {
       previewSegment.remove();
       previewSegment = null;
     }
     if (currentSplineRef.current) {
-      currentSplineRef.current.fullySelected = false;
+      // Now smooth
       currentSplineRef.current.smooth({ type: 'catmull-rom', factor: 0.5 });
-      // Optionally, store fitPoints in data for later editing
+      // Set BOTH handles of the last segment to zero for a truly neutral end
+      const segs = currentSplineRef.current.segments;
+      if (segs.length > 0) {
+        segs[segs.length - 1].handleIn = new paper.Point(0, 0);
+        segs[segs.length - 1].handleOut = new paper.Point(0, 0);
+      }
+      currentSplineRef.current.fullySelected = false;
       currentSplineRef.current.data.isSpline = true;
     }
     isDrawingSplineRef.current = false;
@@ -274,10 +284,9 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     onMouseUp,
     onKeyDown,
     onDoubleClick,
+    finishSpline, // Expose for external calls
     onActivate,
     onDeactivate,
   };
-  // Expose finishSpline for React integration (floating tick button)
-  (toolApi as any).finishSpline = finishSpline;
   return toolApi;
 }
