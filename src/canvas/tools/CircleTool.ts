@@ -7,8 +7,8 @@ interface StateManager {
   finishCurrentDrawing: () => void;
   resetNumericInput: () => void;
   getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
-  isPanning: boolean;
-  isSpacebarPan: boolean;
+  isPanningRef: React.MutableRefObject<boolean>;
+  isSpacebarPanRef: React.MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
 }
 
@@ -20,8 +20,8 @@ export function createCircleTool(_canvasRef: React.RefObject<HTMLCanvasElement |
     finishCurrentDrawing,
     resetNumericInput,
     getSnapPoint,
-    isPanning,
-    isSpacebarPan,
+    isPanningRef,
+    isSpacebarPanRef,
     handleDragPan
   } = stateManager;
 
@@ -109,7 +109,7 @@ export function createCircleTool(_canvasRef: React.RefObject<HTMLCanvasElement |
     },
     
     onMouseDrag: (event: paper.ToolEvent) => { 
-      if (isPanning || isSpacebarPan) handleDragPan(event); 
+      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event); 
     },
     
     onMouseUp: () => {},

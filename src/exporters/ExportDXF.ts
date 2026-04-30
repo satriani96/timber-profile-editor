@@ -15,17 +15,41 @@ interface ArcData extends CircleData {
   sweepAngle: number;
 }
 
+interface FilletMeta {
+  cornerIndex: number;
+  cornerPoint?: paper.Point;
+  tangentPoint1: paper.Point;
+  tangentPoint2: paper.Point;
+  center: paper.Point;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+}
+
+function resolveFilletCornerIndex(path: paper.Path, fillet: FilletMeta): number {
+  const cp = fillet.cornerPoint;
+  if (cp && typeof cp.getDistance === 'function') {
+    let best = fillet.cornerIndex;
+    let bestD = Infinity;
+    for (let i = 0; i < path.segments.length; i++) {
+      const d = path.segments[i].point.getDistance(cp);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+  return fillet.cornerIndex;
+}
+
 /**
  * Exports the current Paper.js canvas content to DXF format
  * and triggers a download of the resulting file
  */
 export const exportToDXF = () => {
-  // Create a new DXF writer
   const dxf = new DxfWriter();
-  
-  let arcCount = 0;
-  let lineCount = 0;
-  
+
   // Process all paths in the active layer
   paper.project.activeLayer.children.forEach((item) => {
     // Skip temporary/debug paths like snap indicators or construction lines
@@ -39,24 +63,19 @@ export const exportToDXF = () => {
       
       // Check for fillets array in closed shapes
       if (item.data?.fillets && Array.isArray(item.data.fillets) && item.data.fillets.length > 0) {
-        // For closed shapes with fillets, we need to handle them differently
-        // First, identify which segments are part of fillets
-        const filletCorners = new Set(item.data.fillets.map((fillet: any) => fillet.cornerIndex));
-        
-        // Create a map of tangent points for each segment
-        const tangentPoints = new Map<number, { prev: paper.Point, next: paper.Point }>();
-        
-        // Collect all tangent points
-        item.data.fillets.forEach((fillet: any) => {
-          // Store the tangent points by the corner index
-          tangentPoints.set(fillet.cornerIndex, {
+        const fillets = item.data.fillets as FilletMeta[];
+        const resolvedByFillet = fillets.map((f) => resolveFilletCornerIndex(item, f));
+        const filletCorners = new Set(resolvedByFillet);
+
+        const tangentPoints = new Map<number, { prev: paper.Point; next: paper.Point }>();
+        fillets.forEach((fillet, idx) => {
+          const cornerIdx = resolvedByFillet[idx];
+          tangentPoints.set(cornerIdx, {
             prev: fillet.tangentPoint1,
-            next: fillet.tangentPoint2
+            next: fillet.tangentPoint2,
           });
         });
-        
-        // Take a completely different approach for closed shapes with fillets
-        // We'll create a new array of points that includes both segment points and tangent points
+
         let exportPoints: paper.Point[] = [];
         for (let i = 0; i < item.segments.length; i++) {
           if (filletCorners.has(i) && tangentPoints.has(i)) {
@@ -64,126 +83,68 @@ export const exportToDXF = () => {
             const t2 = tangentPoints.get(i)!.next;
             exportPoints.push(t1);
             exportPoints.push(t2);
-            console.log(`[DXF DEBUG] Fillet corner ${i}: tangentPoint1=(${t1.x.toFixed(3)},${t1.y.toFixed(3)}), tangentPoint2=(${t2.x.toFixed(3)},${t2.y.toFixed(3)})`);
           } else {
-            const currentPoint = item.segments[i].point;
-            exportPoints.push(currentPoint);
-            console.log(`[DXF DEBUG] Non-filleted corner ${i}: point=(${currentPoint.x.toFixed(3)},${currentPoint.y.toFixed(3)})`);
+            exportPoints.push(item.segments[i].point);
           }
         }
-        // Remove consecutive duplicate points
         exportPoints = exportPoints.filter((pt, idx, arr) => idx === 0 || !pt.equals(arr[idx - 1]));
-        // Remove any non-consecutive duplicates (keep only the first occurrence of each point)
-        exportPoints = exportPoints.filter((pt, idx, arr) => arr.findIndex(p => p.equals(pt)) === idx);
+        exportPoints = exportPoints.filter((pt, idx, arr) => arr.findIndex((p) => p.equals(pt)) === idx);
         if (exportPoints.length > 1 && exportPoints[0].equals(exportPoints[exportPoints.length - 1])) {
           exportPoints.pop();
         }
-        // Log the final exportPoints order (after all filtering)
-        console.log('[DXF DEBUG] Export point order (filtered):');
-        exportPoints.forEach((pt, idx) => {
-          console.log(`  [${idx}] (${pt.x.toFixed(3)},${pt.y.toFixed(3)})`);
-        });
-        
-        // Now export lines between consecutive points, but skip lines that connect tangent points
-        // These will be replaced by arcs
+
         for (let i = 0; i < exportPoints.length; i++) {
           const p1 = exportPoints[i];
           const p2 = exportPoints[(i + 1) % exportPoints.length];
           let skipLine = false;
-          let filletIdx = null;
-          for (const fillet of item.data.fillets) {
-            const tangentPair = tangentPoints.get(fillet.cornerIndex);
+          for (let fi = 0; fi < fillets.length; fi++) {
+            const cornerIdx = resolvedByFillet[fi];
+            const tangentPair = tangentPoints.get(cornerIdx);
             if (tangentPair) {
-              if ((p1.equals(tangentPair.prev) && p2.equals(tangentPair.next)) ||
-                  (p1.equals(tangentPair.next) && p2.equals(tangentPair.prev))) {
+              if (
+                (p1.equals(tangentPair.prev) && p2.equals(tangentPair.next)) ||
+                (p1.equals(tangentPair.next) && p2.equals(tangentPair.prev))
+              ) {
                 skipLine = true;
-                filletIdx = fillet.cornerIndex;
                 break;
               }
             }
           }
           if (!skipLine) {
             dxf.addLine(dxfPoint(p1.x, p1.y), dxfPoint(p2.x, p2.y));
-            lineCount++;
-            console.log(`[DXF DEBUG] Line: (${p1.x.toFixed(3)},${p1.y.toFixed(3)}) -> (${p2.x.toFixed(3)},${p2.y.toFixed(3)})`);
-          } else {
-            console.log(`[DXF DEBUG] Skipped line between tangent points of fillet corner ${filletIdx}: (${p1.x.toFixed(3)},${p1.y.toFixed(3)}) <-> (${p2.x.toFixed(3)},${p2.y.toFixed(3)})`);
           }
         }
-        
-        // Now add each fillet arc
-        item.data.fillets.forEach((fillet: any, filletIdx: number) => {
-          let startAngle = fillet.startAngle;
+
+        fillets.forEach((fillet) => {
+          const startAngle = fillet.startAngle;
           let endAngle = fillet.endAngle;
           if (endAngle < startAngle) {
             endAngle += 360;
           }
-          dxf.addArc(
-            dxfPoint(fillet.center.x, fillet.center.y),
-            fillet.radius,
-            startAngle,
-            endAngle
-          );
-          arcCount++;
-          console.log(`[DXF DEBUG] Arc (fillet ${filletIdx}): center=(${fillet.center.x.toFixed(3)},${fillet.center.y.toFixed(3)}), radius=${fillet.radius}, startAngle=${startAngle}, endAngle=${endAngle}`);
+          dxf.addArc(dxfPoint(fillet.center.x, fillet.center.y), fillet.radius, startAngle, endAngle);
         });
-        
+
         processed = true;
       }
       // Check for circle data first
       else if (item.data?.center && item.data.radius !== undefined && !item.data.isArc) {
-        // It's a circle - export as DXF circle entity
-        try {
-          const circleCenter = item.data.center;
-          const radius = item.data.radius;
-          dxf.addCircle(dxfPoint(circleCenter.x, circleCenter.y), radius);
-          arcCount++; // We'll count circles as arcs for the summary
-        } catch (e) {
-          console.error('Error creating circle entity:', e);
-          // Fallback to polyline approximation
-          sampleAndExportCurve(item, dxf);
-        }
+        const circleCenter = item.data.center;
+        const radius = item.data.radius;
+        dxf.addCircle(dxfPoint(circleCenter.x, circleCenter.y), radius);
       }
       // Check for rectangle/square data
       else if (item.segments && item.segments.length === 4 && isRectangle(item)) {
-        // It's a rectangle - export as polyline with 5 points (closing the shape)
-        try {
-          // Create vertices for LWPolyline - using point2d as LWPolyline is always in 2D space
-          const vertices = item.segments.map(segment => ({
-            point: point2d(segment.point.x, segment.point.y) // Using original point2d for polylines
-          }));
-          
-          // No need to add closing point - the Closed flag handles that
-          dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed }); // Closed polyline
-          lineCount++;
-        } catch (e) {
-          console.error('Error creating rectangle entity:', e);
-          // Fallback to individual lines
-          for (let i = 0; i < 4; i++) {
-            const startPoint = item.segments[i].point;
-            const endPoint = item.segments[(i + 1) % 4].point;
-            dxf.addLine(dxfPoint(startPoint.x, startPoint.y), dxfPoint(endPoint.x, endPoint.y));
-            lineCount++;
-          }
-        }
+        const vertices = item.segments.map((segment) => ({
+          point: point2d(segment.point.x, segment.point.y),
+        }));
+        dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed });
       }
       // CRITICAL: Check for arc data before assuming it's a straight line
       else if (item.data?.isArc && item.data.center) {
-        // Check if we have the complete arc metadata we need
         if (item.data.startAngle !== undefined && item.data.endAngle !== undefined && item.data.radius) {
-          try {
-            // Export the arc with properly calculated angles
-            exportArc(item, dxf);
-            arcCount++;
-            processed = true;
-          } catch (e) {
-            console.error('Error creating arc entity:', e);
-            // Fallback to polyline approximation
-            sampleAndExportCurve(item, dxf);
-            processed = true;
-          }
+          exportArc(item, dxf);
+          processed = true;
         } else {
-          // Fall back to polyline approximation if we're missing data
           sampleAndExportCurve(item, dxf);
           processed = true;
         }
@@ -194,7 +155,6 @@ export const exportToDXF = () => {
         const startPoint = item.segments[0].point;
         const endPoint = item.segments[1].point;
         dxf.addLine(dxfPoint(startPoint.x, startPoint.y), dxfPoint(endPoint.x, endPoint.y));
-        lineCount++;
         processed = true;
       } 
       // Handle curves and other complex paths that weren't processed by previous conditions
@@ -204,17 +164,9 @@ export const exportToDXF = () => {
           (seg.handleIn && seg.handleIn.length > 0) || (seg.handleOut && seg.handleOut.length > 0)
         );
         if (hasBezierHandles) {
-          try {
-            exportBezierSplineToDXF(item, dxf);
-            processed = true;
-          } catch (e) {
-            console.error('Error exporting Bézier spline as DXF Spline:', e);
-            // Fallback to polyline approximation
-            sampleAndExportCurve(item, dxf);
-            processed = true;
-          }
+          exportBezierSplineToDXF(item, dxf);
+          processed = true;
         } else {
-          // Fallback to sampled polyline for non-spline curves
           sampleAndExportCurve(item, dxf);
           processed = true;
         }
@@ -222,13 +174,8 @@ export const exportToDXF = () => {
     }
   });
 
-  // Display a simple summary of what was exported
-  console.log(`DXF Export complete: ${lineCount} lines, ${arcCount} arcs`);
-  
-  // Export the DXF document to a string
   const dxfString = dxf.stringify();
-  
-  // Create a download link
+
   const blob = new Blob([dxfString], { type: 'application/dxf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -236,6 +183,8 @@ export const exportToDXF = () => {
   a.download = 'timber-profile.dxf';
   document.body.appendChild(a);
   a.click();
+  a.remove();
+  requestAnimationFrame(() => URL.revokeObjectURL(url));
 }
 
 /**
@@ -274,7 +223,7 @@ function exportArc(path: paper.Path, dxf: DxfWriter): void {
   const radius = arcData.radius;
   
   // Get the angles directly from data (they're already in degrees)
-  let startAngleDeg = arcData.startAngle;
+  const startAngleDeg = arcData.startAngle;
   let endAngleDeg = arcData.endAngle;
   
   // For fillet arcs, we've already calculated the correct angles in the fillet tool

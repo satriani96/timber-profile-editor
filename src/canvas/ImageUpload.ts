@@ -54,9 +54,11 @@ export class ImageUpload {
     const [p1, p2] = this.state.calibrationPoints;
     const pixelDist = p1.getDistance(p2);
     if (pixelDist === 0) return;
-    this.state.scale = realWorldDistance / pixelDist;
+    const factor = realWorldDistance / pixelDist;
+    this.state.scale = factor;
     if (this.state.raster) {
-      this.state.raster.scale(this.state.scale);
+      const pivot = p1.add(p2).divide(2);
+      this.state.raster.scale(factor, pivot);
     }
   }
 }

@@ -2,8 +2,8 @@ import paper from 'paper';
 
 interface StateManager {
   draggedSegmentRef: React.MutableRefObject<paper.Segment | null>;
-  isPanning: boolean;
-  isSpacebarPan: boolean;
+  isPanningRef: React.MutableRefObject<boolean>;
+  isSpacebarPanRef: React.MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
   handleVertexDrag: (event: paper.ToolEvent) => void;
 }
@@ -11,8 +11,8 @@ interface StateManager {
 export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement | null>, stateManager: StateManager) {
   const {
     draggedSegmentRef,
-    isPanning,
-    isSpacebarPan,
+    isPanningRef,
+    isSpacebarPanRef,
     handleDragPan,
     handleVertexDrag
   } = stateManager;
@@ -29,7 +29,8 @@ export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement |
       draggedSegmentRef.current = null;
       selectedHandle = null;
       // First, check if a spline handle was clicked
-      const hit = paper.project.hitTest(event.point, { segments: true, handles: true, tolerance: 10 });
+      const tol = 10 / paper.view.zoom;
+      const hit = paper.project.hitTest(event.point, { segments: true, handles: true, tolerance: tol });
       if (hit && hit.item && hit.item.data && hit.item.data.isSpline && hit.item instanceof paper.Path) {
         // Check if a handle was clicked
         if (hit.type === 'handle-in' || hit.type === 'handle-out') {
@@ -43,7 +44,7 @@ export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement |
         }
       }
       // Otherwise, proceed as before
-      const segmentHit = paper.project.hitTest(event.point, { segments: true, tolerance: 5 });
+      const segmentHit = paper.project.hitTest(event.point, { segments: true, tolerance: 5 / paper.view.zoom });
       if (segmentHit) {
         draggedSegmentRef.current = segmentHit.segment;
         if (!segmentHit.item.selected) { 
@@ -56,7 +57,7 @@ export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement |
         }
         return;
       }
-      const pathHit = paper.project.hitTest(event.point, { stroke: true, tolerance: 5 });
+      const pathHit = paper.project.hitTest(event.point, { stroke: true, tolerance: 5 / paper.view.zoom });
       if (pathHit) { 
         paper.project.deselectAll(); 
         pathHit.item.selected = true; 
@@ -70,7 +71,7 @@ export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement |
     },
     
     onMouseDrag: (event: paper.ToolEvent) => { 
-      if (isPanning || isSpacebarPan) {
+      if (isPanningRef.current || isSpacebarPanRef.current) {
         handleDragPan(event);
         return;
       }

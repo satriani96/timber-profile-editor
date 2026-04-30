@@ -6,8 +6,8 @@ interface StateManager {
   snapIndicatorRef: React.MutableRefObject<paper.Path.Circle | null>;
   finishCurrentDrawing: () => void;
   getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
-  isPanning: boolean;
-  isSpacebarPan: boolean;
+  isPanningRef: React.MutableRefObject<boolean>;
+  isSpacebarPanRef: React.MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
 }
 
@@ -18,8 +18,8 @@ export function createLineTool(_canvasRef: React.RefObject<HTMLCanvasElement | n
     snapIndicatorRef,
     finishCurrentDrawing,
     getSnapPoint,
-    isPanning,
-    isSpacebarPan,
+    isPanningRef,
+    isSpacebarPanRef,
     handleDragPan
   } = stateManager;
 
@@ -63,7 +63,7 @@ export function createLineTool(_canvasRef: React.RefObject<HTMLCanvasElement | n
     },
     
     onMouseDrag: (event: paper.ToolEvent) => { 
-      if (isPanning || isSpacebarPan) handleDragPan(event); 
+      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event); 
     },
     
     onKeyDown: null,

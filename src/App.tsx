@@ -2,12 +2,12 @@ import { useState, useRef } from 'react';
 import type { SketchTool } from './types';
 import Toolbar from './components/Toolbar';
 
-import SketchCanvas from './components/SketchCanvas';
+import SketchCanvas, { type SketchCanvasHandle } from './components/SketchCanvas';
 
 function App() {
   const [activeTool, setActiveTool] = useState<SketchTool>('select');
   const exportDXFRef = useRef<() => void>(() => {});
-  const sketchCanvasRef = useRef<any>(null);
+  const sketchCanvasRef = useRef<SketchCanvasHandle | null>(null);
 
   const handleExportDXF = () => {
     exportDXFRef.current();
@@ -15,9 +15,7 @@ function App() {
 
   // Forward image upload to SketchCanvas
   const handleUploadImage = (file: File) => {
-    if (sketchCanvasRef.current && typeof sketchCanvasRef.current.handleUploadImage === 'function') {
-      sketchCanvasRef.current.handleUploadImage(file);
-    }
+    sketchCanvasRef.current?.handleUploadImage(file);
   };
 
   return (

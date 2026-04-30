@@ -1,16 +1,17 @@
 import paper from 'paper';
+import type { MutableRefObject } from 'react';
 
 interface StateManager {
   finishCurrentDrawing: () => void;
-  isPanning: boolean;
-  isSpacebarPan: boolean;
+  isPanningRef: MutableRefObject<boolean>;
+  isSpacebarPanRef: MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
 }
 
 const BASE_STROKE_WIDTH = 2;
 
 export function createTrimTool(stateManager: StateManager) {
-  const { finishCurrentDrawing, isPanning, isSpacebarPan, handleDragPan } = stateManager;
+  const { finishCurrentDrawing, isPanningRef, isSpacebarPanRef, handleDragPan } = stateManager;
 
   let highlightPath: paper.Path | null = null;
 
@@ -21,8 +22,12 @@ export function createTrimTool(stateManager: StateManager) {
     }
   }
 
-  function findNearestIntersection(path: paper.Path, eventPoint: paper.Point) {
-    let nearest = null, minDist = Infinity;
+  function findNearestIntersection(
+    path: paper.Path,
+    eventPoint: paper.Point
+  ): paper.CurveLocation | null {
+    let nearest: paper.CurveLocation | null = null;
+    let minDist = Infinity;
     for (const other of paper.project.activeLayer.children) {
       if (other === path || !(other instanceof paper.Path) || !other.visible) continue;
       const inters = path.getIntersections(other);
@@ -34,7 +39,11 @@ export function createTrimTool(stateManager: StateManager) {
     return nearest;
   }
 
-  function getTrimOffsets(path: paper.Path, eventPoint: paper.Point, nearestInter: any) {
+  function getTrimOffsets(
+    path: paper.Path,
+    eventPoint: paper.Point,
+    nearestInter: paper.CurveLocation | null
+  ) {
     const nearestLoc = path.getNearestLocation(eventPoint);
     const clickOffset = nearestLoc ? nearestLoc.offset : null;
     let from = 0, to = path.length;
@@ -111,23 +120,40 @@ export function createTrimTool(stateManager: StateManager) {
   function splitPathAtIntersections(closedPath: paper.Path, cuttingPath: paper.Path): paper.Path[] {
     const intersections = closedPath.getIntersections(cuttingPath);
     if (intersections.length !== 2) return [];
-    // Get offsets and sort ascending
     const epsilon = 1e-2;
     const offsets = intersections
-      .map(loc => closedPath.getOffsetOf(loc.point))
-      .filter(offset => offset > epsilon && offset < closedPath.length - epsilon)
+      .map((loc) => closedPath.getOffsetOf(loc.point))
+      .filter((offset) => offset > epsilon && offset < closedPath.length - epsilon)
       .sort((a, b) => a - b);
     if (offsets.length !== 2) return [];
-    // Split at higher offset first to avoid offset invalidation
-    const [, offset2] = offsets; // Using only the second offset
-    // Split at offset2, then offset1
-    const firstSplit = closedPath.splitAt(offset2);
-    if (!firstSplit) return [];
-    // After splitting, we have two open paths: closedPath and firstSplit
-    // Close both to form polygons
-    closedPath.closed = true;
-    firstSplit.closed = true;
-    return [closedPath, firstSplit];
+
+    const [o1, o2] = offsets;
+    const L = closedPath.length;
+    const strokeColor = closedPath.strokeColor;
+    const strokeWidth = closedPath.strokeWidth;
+
+    function sampleRing(from: number, to: number): paper.Path {
+      const span = to >= from ? to - from : L - from + to;
+      const steps = Math.max(16, Math.min(128, Math.ceil(span / 4)));
+      const ring = new paper.Path({
+        strokeColor,
+        strokeWidth,
+        closed: true,
+      });
+      for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * span;
+        let off = from + t;
+        while (off > L) off -= L;
+        const loc = closedPath.getLocationAt(off);
+        if (loc) ring.add(loc.point);
+      }
+      return ring;
+    }
+
+    const ringA = sampleRing(o1, o2);
+    const ringB = sampleRing(o2, o1);
+    closedPath.remove();
+    return [ringA, ringB];
   }
 
   function trimOpenPath(path: paper.Path, from: number, to: number) {
@@ -186,7 +212,7 @@ export function createTrimTool(stateManager: StateManager) {
 
   function onMouseMove(event: paper.ToolEvent) {
     cleanupHighlight();
-    if (isPanning || isSpacebarPan) return;
+    if (isPanningRef.current || isSpacebarPanRef.current) return;
 
     const hit = paper.project.hitTest(event.point, { segments: false, stroke: true, tolerance: 8 / paper.view.zoom });
     if (!hit || !(hit.item instanceof paper.Path) || !hit.item.visible) return;
@@ -195,18 +221,6 @@ export function createTrimTool(stateManager: StateManager) {
 
     const nearest = findNearestIntersection(path, event.point);
     const { from, to } = getTrimOffsets(path, event.point, nearest);
-
-    // Debug output
-    console.log('[TrimTool] onMouseMove', {
-      pathId: path.id,
-      pathType: path.data?.isArc ? 'arc' : path.data?.isSpline ? 'spline' : 'line',
-      eventPoint: event.point,
-      trimMode: nearest ? 'intersection' : 'endpoint',
-      intersectionOffset: nearest ? path.getOffsetOf(nearest.point) : null,
-      from,
-      to,
-      pathLength: path.length
-    });
 
     highlightPath = createHighlight(path, from, to);
   }
@@ -262,7 +276,7 @@ export function createTrimTool(stateManager: StateManager) {
     onMouseDown,
     onDeactivate: cleanupHighlight,
     onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanning || isSpacebarPan) handleDragPan(event);
+      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
     onActivate: () => {},
     onKeyDown: null,

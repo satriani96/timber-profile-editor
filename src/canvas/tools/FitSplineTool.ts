@@ -8,8 +8,8 @@ export interface FitSplineStateManager {
   isDrawingSplineRef: React.MutableRefObject<boolean>;
   selectedSplinePointRef: React.MutableRefObject<{ path: paper.Path, index: number } | null>;
   finishCurrentSpline: () => void;
-  isPanning: boolean;
-  isSpacebarPan: boolean;
+  isPanningRef: React.MutableRefObject<boolean>;
+  isSpacebarPanRef: React.MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
   setIsSplineDrawing?: (val: boolean) => void; // Optional setter for React state
 }
@@ -26,8 +26,8 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     isDrawingSplineRef,
     selectedSplinePointRef,
     finishCurrentSpline,
-    isPanning,
-    isSpacebarPan,
+    isPanningRef,
+    isSpacebarPanRef,
     handleDragPan,
   } = stateManager;
 
@@ -36,8 +36,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
 
   // --- Drawing mode ---
   function onMouseDown(event: paper.ToolEvent) {
-    console.log("[FitSplineTool] onMouseDown", event.point);
-    if (isSpacebarPan) return;
+    if (isSpacebarPanRef.current) return;
 
     // --- Handle editing: check if user clicked a handle first ---
     if (isDrawingSplineRef.current && currentSplineRef.current) {
@@ -124,7 +123,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
   }
 
   function onMouseDrag(event: paper.ToolEvent) {
-    if (isPanning || isSpacebarPan) {
+    if (isPanningRef.current || isSpacebarPanRef.current) {
       handleDragPan(event);
       return;
     }
@@ -210,17 +209,11 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
 
   function onKeyDown(event: paper.KeyEvent) {
     if (isDrawingSplineRef.current) {
-      if (event.key === 'enter') {
+      if (event.key === 'Enter') {
         finishSpline();
-      } else if (event.key === 'escape') {
+      } else if (event.key === 'Escape') {
         cancelSpline();
       }
-    }
-  }
-
-  function onDoubleClick() {
-    if (isDrawingSplineRef.current) {
-      finishSpline();
     }
   }
 
@@ -283,8 +276,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     onMouseMove,
     onMouseUp,
     onKeyDown,
-    onDoubleClick,
-    finishSpline, // Expose for external calls
+    finishSpline, // Expose for external calls (e.g. floating button, canvas dblclick)
     onActivate,
     onDeactivate,
   };

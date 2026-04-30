@@ -11,7 +11,7 @@ interface StateManager {
   setIsNumericInputActive: (visible: boolean) => void;
   setNumericInputPosition: (position: { x: number; y: number }) => void;
   finishCurrentFilletOperation: () => void;
-  isSpacebarPan: boolean;
+  isSpacebarPanRef: React.MutableRefObject<boolean>;
 }
 
 export function createFilletTool(stateManager: StateManager) {
@@ -23,7 +23,7 @@ export function createFilletTool(stateManager: StateManager) {
     setIsNumericInputActive,
     setNumericInputPosition,
     finishCurrentFilletOperation,
-    isSpacebarPan,
+    isSpacebarPanRef,
   } = stateManager;
 
   const applyFillet = (radiusValue: number) => {
@@ -103,8 +103,19 @@ export function createFilletTool(stateManager: StateManager) {
         if (!newPath.data.fillets) newPath.data.fillets = [];
         
         // Add this fillet to the fillets array
+        let cornerIndexOnNew = cornerSegment.index;
+        let bestD = Infinity;
+        for (let i = 0; i < newPath.segments.length; i++) {
+          const d = newPath.segments[i].point.getDistance(cornerPoint);
+          if (d < bestD) {
+            bestD = d;
+            cornerIndexOnNew = i;
+          }
+        }
+
         newPath.data.fillets.push({
-          cornerIndex: cornerSegment.index,
+          cornerIndex: cornerIndexOnNew,
+          cornerPoint: cornerPoint.clone(),
           isArc: true,
           center: arcCenter,
           radius: radiusValue,
@@ -204,7 +215,7 @@ export function createFilletTool(stateManager: StateManager) {
       alert('Unsupported fillet case.');
     }
     
-    (paper.view as any).draw();
+    paper.view.update();
     finishCurrentFilletOperation();
   };
 
@@ -219,7 +230,7 @@ export function createFilletTool(stateManager: StateManager) {
     },
 
     onMouseDown: (event: paper.ToolEvent) => {
-      if (isSpacebarPan) return;
+      if (isSpacebarPanRef.current) return;
 
       const hitResult = paper.project.hitTest(event.point, { segments: true, tolerance: 10 });
       if (!hitResult || !hitResult.segment || !(hitResult.item instanceof paper.Path)) {
@@ -256,7 +267,7 @@ export function createFilletTool(stateManager: StateManager) {
     },
 
     onKeyDown: (event: paper.KeyEvent) => {
-      if (event.key === 'escape') {
+      if (event.key === 'Escape') {
         finishCurrentFilletOperation();
       }
     },
