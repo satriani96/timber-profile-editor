@@ -7,6 +7,9 @@ interface ImageSideToolbarProps {
   onDeleteImage: () => void;
   onStartCalibrate: () => void;
   calibrateActive: boolean;
+  onStartMeasure: () => void;
+  measureActive: boolean;
+  onClearMeasurements: () => void;
 }
 
 const ImageSideToolbar: React.FC<ImageSideToolbarProps> = ({
@@ -16,6 +19,9 @@ const ImageSideToolbar: React.FC<ImageSideToolbarProps> = ({
   onDeleteImage,
   onStartCalibrate,
   calibrateActive,
+  onStartMeasure,
+  measureActive,
+  onClearMeasurements,
 }) => {
   if (!hasImage) return null;
   return (
@@ -43,6 +49,22 @@ const ImageSideToolbar: React.FC<ImageSideToolbarProps> = ({
       >
         {/* Ruler icon */}
         <span role="img" aria-label="calibrate">📏</span>
+      </button>
+      <button
+        title="Measure Distance"
+        className={`w-8 h-8 flex items-center justify-center rounded hover:bg-rose-100 ${measureActive ? 'bg-rose-200' : ''}`}
+        onClick={onStartMeasure}
+      >
+        {/* Measure icon */}
+        <span role="img" aria-label="measure">📐</span>
+      </button>
+      <button
+        title="Clear Measurements"
+        className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-200 text-gray-600"
+        onClick={onClearMeasurements}
+      >
+        {/* Clear icon */}
+        <span role="img" aria-label="clear measurements">🧹</span>
       </button>
     </div>
   );

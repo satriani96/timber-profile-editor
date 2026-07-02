@@ -56,6 +56,11 @@ export const exportToDXF = () => {
     if (item.data && item.data.isTemporary) {
       return;
     }
+
+    // Skip measurement annotations (dimension lines/labels are not part of the profile)
+    if (item.data && item.data.isMeasurement) {
+      return;
+    }
     
     if (item instanceof paper.Path) {
       // Track if this item was processed

@@ -9,6 +9,7 @@ import { exportToDXF } from '../exporters/ExportDXF';
 import { BASE_STROKE_WIDTH } from './sketch/constants';
 import { usePaperBootstrap } from './sketch/usePaperBootstrap';
 import { useImageCalibration } from './sketch/useImageCalibration';
+import { useImageMeasurement } from './sketch/useImageMeasurement';
 import { attachSketchPaperTools } from './sketch/attachSketchPaperTools';
 import NumericInputPanel from './NumericInputPanel';
 import FloatingFinishButton from './FloatingFinishButton';
@@ -39,10 +40,14 @@ function SketchCanvas(
   const imageUploadRef = useRef<ImageUpload | null>(null);
   // Markers for calibration points (tracked only in ref)
   const calibrationMarkersRef = useRef<paper.Path.Circle[]>([]);
+  // Refs for in-progress measurement (points + temporary markers)
+  const measurementPointsRef = useRef<paper.Point[]>([]);
+  const measurementMarkersRef = useRef<paper.Path.Circle[]>([]);
 
   // State for image visibility, calibration, and image version (for forced re-render)
   const [imageVisible, setImageVisible] = useState(true);
   const [calibrateActive, setCalibrateActive] = useState(false);
+  const [measureActive, setMeasureActive] = useState(false);
   const [imageVersion, setImageVersion] = useState(0);
   const [hasImage, setHasImage] = useState(false);
   const [queuedImageFile, setQueuedImageFile] = useState<File | null>(null);
@@ -87,6 +92,14 @@ function SketchCanvas(
     setCalibrateActive,
   });
 
+  useImageMeasurement({
+    measureActive,
+    paperReady,
+    canvasRef,
+    measurementPointsRef,
+    measurementMarkersRef,
+  });
+
   // If an image upload was queued before Paper.js was ready, process it now
   useEffect(() => {
     if (paperReady && queuedImageFile) {
@@ -98,9 +111,22 @@ function SketchCanvas(
   // --- Helper: update all stroke widths to match current zoom ---
   const updateAllStrokeWidths = useCallback(() => {
     if (!paperReady) return;
+    const zoom = paper.view.zoom;
     paper.project.activeLayer.children.forEach(item => {
+      if (item.data?.isMeasurement && item instanceof paper.Group) {
+        item.children.forEach(child => {
+          if (child instanceof paper.PointText) {
+            child.fontSize = 14 / zoom;
+          } else if (child instanceof paper.Path.Circle) {
+            child.strokeWidth = 1.5 / zoom;
+          } else if (child instanceof paper.Path) {
+            child.strokeWidth = BASE_STROKE_WIDTH / zoom;
+          }
+        });
+        return;
+      }
       if (item instanceof paper.Path && !item.data?.isTemporary && item.visible) {
-        item.strokeWidth = BASE_STROKE_WIDTH / paper.view.zoom;
+        item.strokeWidth = BASE_STROKE_WIDTH / zoom;
       }
     });
   }, [paperReady]);
@@ -583,12 +609,31 @@ function SketchCanvas(
           }
           setImageVisible(false);
           setCalibrateActive(false);
+          setMeasureActive(false);
           setImageVersion(v => v + 1);
           setHasImage(false);
           paper.view.update();
         }}
-        onStartCalibrate={() => setCalibrateActive(v => !v)}
+        onStartCalibrate={() => {
+          setMeasureActive(false);
+          setCalibrateActive(v => !v);
+        }}
         calibrateActive={calibrateActive}
+        onStartMeasure={() => {
+          setCalibrateActive(false);
+          setMeasureActive(v => {
+            const next = !v;
+            if (next) setActiveTool('select');
+            return next;
+          });
+        }}
+        measureActive={measureActive}
+        onClearMeasurements={() => {
+          paper.project.activeLayer.children
+            .filter(item => item.data?.isMeasurement)
+            .forEach(item => item.remove());
+          paper.view.update();
+        }}
       />
     </div>
   );
