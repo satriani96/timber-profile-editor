@@ -1,7 +1,7 @@
 import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d, type CommonEntityOptions } from '@tarikjabiri/dxf';
 import paper from 'paper';
 import { dimensionLabel, dimensionOffset, readDimensionData } from '../canvas/dimensions';
-import { arcAngles } from '../canvas/geometry/pathCuts';
+import { fitCircularArc } from '../canvas/geometry/circularFit';
 import { DIMENSIONS_LAYER, getLayerState, itemLayerName } from '../canvas/layers';
 import { pathToBezierSpline } from '../importers/splineConversion';
 import { hexToAci } from './aci';
@@ -190,38 +190,6 @@ function exportCurve(curve: paper.Curve, dxf: DxfWriter, options?: CommonEntityO
     vertices.push(dxfVertex(p));
   }
   dxf.addLWPolyline(vertices, options);
-}
-
-/** Circle through three points, or null when they are (nearly) collinear. */
-function circumcenter(a: paper.Point, b: paper.Point, c: paper.Point): paper.Point | null {
-  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-  if (Math.abs(d) < 1e-9) return null;
-  const a2 = a.x * a.x + a.y * a.y;
-  const b2 = b.x * b.x + b.y * b.y;
-  const c2 = c.x * c.x + c.y * c.y;
-  return new paper.Point(
-    (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
-    (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d
-  );
-}
-
-/**
- * Detects Bézier curves that approximate a circular arc (fillets, cut circles)
- * so they can be written as true DXF arcs.
- */
-export function fitCircularArc(curve: paper.Curve) {
-  const start = curve.point1;
-  const end = curve.point2;
-  const mid = curve.getPointAtTime(0.5);
-  const center = circumcenter(start, mid, end);
-  if (!center) return null;
-  const radius = center.getDistance(start);
-  if (radius <= 0) return null;
-  const tolerance = Math.max(0.005, radius * 0.002);
-  for (const t of [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]) {
-    if (Math.abs(center.getDistance(curve.getPointAtTime(t)) - radius) > tolerance) return null;
-  }
-  return { center, radius, ...arcAngles(center, start, mid, end) };
 }
 
 /** Writes the path's cubic Bézier curves as an exact degree-3 NURBS. */
