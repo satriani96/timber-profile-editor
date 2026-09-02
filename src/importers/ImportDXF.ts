@@ -14,23 +14,57 @@ const MAX_BLOCK_DEPTH = 8;
 const SPLINE_SAMPLES_PER_SPAN = 4;
 const ELLIPSE_SAMPLES = 48;
 
+/** A parsed file waiting for the user to confirm its units. */
+export interface PreparedImport {
+  doc: DxfDocument;
+  /** Bounding size of the geometry in the file's own drawing units. */
+  extents: { width: number; height: number } | null;
+  /** $INSUNITS from the header; 0 when the file does not say. */
+  headerUnits: number;
+  /** Millimetres per drawing unit implied by the header (1 when unspecified). */
+  headerMmPerUnit: number;
+  entityCount: number;
+}
+
 /**
- * Imports DXF geometry into the active layer. Coordinates are used exactly as
- * the exporter writes them (no Y flip), so round-tripping a profile through
- * Export/Import is lossless. Drawing units are converted to millimetres via
- * $INSUNITS; unitless files are assumed to be millimetres.
+ * Parses the file and measures its geometry without adding anything to the
+ * sketch, so the caller can show the user what the header claims and let them
+ * override it. CAD exporters do not always write a $INSUNITS that matches the
+ * numbers in the file.
  */
-export function importDxfText(text: string): ImportSummary {
+export function prepareDxfImport(text: string): PreparedImport {
   const doc = parseDxf(text);
-  const unitMatrix = new paper.Matrix().scale(millimetresPerUnit(doc.insUnits));
+  const probe: paper.Path[] = [];
+  buildEntities(doc.entities, new paper.Matrix(), doc, probe, {}, 0);
+  let bounds: paper.Rectangle | null = null;
+  for (const item of probe) bounds = bounds ? bounds.unite(item.bounds) : item.bounds.clone();
+  probe.forEach((item) => item.remove());
+  return {
+    doc,
+    extents: bounds ? { width: bounds.width, height: bounds.height } : null,
+    headerUnits: doc.insUnits,
+    headerMmPerUnit: millimetresPerUnit(doc.insUnits),
+    entityCount: probe.length,
+  };
+}
+
+/**
+ * Adds the prepared geometry to the active layer, scaling drawing units to
+ * millimetres by `mmPerUnit`. Coordinates are used exactly as the exporter
+ * writes them (no Y flip), so round-tripping a profile is lossless.
+ */
+export function commitDxfImport(prepared: PreparedImport, mmPerUnit: number): ImportSummary {
+  const unitMatrix = new paper.Matrix().scale(mmPerUnit);
   const items: paper.Path[] = [];
-  const skipped: Record<string, number> = { ...doc.unsupported };
-  buildEntities(doc.entities, unitMatrix, doc, items, skipped, 0);
+  const skipped: Record<string, number> = { ...prepared.doc.unsupported };
+  buildEntities(prepared.doc.entities, unitMatrix, prepared.doc, items, skipped, 0);
   return { imported: items.length, skipped, items };
 }
 
-export async function importDxfFile(file: File): Promise<ImportSummary> {
-  return importDxfText(await file.text());
+/** One-step import using the header's units (or a caller-supplied override). */
+export function importDxfText(text: string, mmPerUnit?: number): ImportSummary {
+  const prepared = prepareDxfImport(text);
+  return commitDxfImport(prepared, mmPerUnit ?? prepared.headerMmPerUnit);
 }
 
 function skip(skipped: Record<string, number>, key: string) {

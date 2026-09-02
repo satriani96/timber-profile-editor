@@ -8,7 +8,7 @@ import { createLineTool } from '../canvas/tools/LineTool';
 import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
-import { importDxfFile } from '../importers/ImportDXF';
+import { commitDxfImport, prepareDxfImport, type PreparedImport } from '../importers/ImportDXF';
 import { usePaperBootstrap } from './sketch/usePaperBootstrap';
 import { useImageCalibration } from './sketch/useImageCalibration';
 import { useImageMeasurement } from './sketch/useImageMeasurement';
@@ -23,6 +23,7 @@ import { ImageUpload } from '../canvas/ImageUpload';
 import ImageSideToolbar from './ImageSideToolbar';
 import ZoomLevelIndicator from './ZoomLevelIndicator';
 import StatusToast from './StatusToast';
+import ImportUnitsDialog from './ImportUnitsDialog';
 
 interface SketchCanvasProps {
   activeTool: SketchTool;
@@ -221,29 +222,48 @@ function SketchCanvas(
     exportDXFRef.current = exportToDXF;
   }, [exportDXFRef]);
 
+  const [pendingImport, setPendingImport] = useState<{ fileName: string; prepared: PreparedImport } | null>(null);
+
   const handleImportDXF = useCallback(
     async (file: File) => {
       if (!paperReady) return;
       try {
-        history.checkpoint();
-        const summary = await importDxfFile(file);
-        if (summary.items.length) {
-          let bounds = summary.items[0].bounds.clone();
-          for (const item of summary.items) bounds = bounds.unite(item.bounds);
-          zoomToFit(bounds);
+        const prepared = prepareDxfImport(await file.text());
+        if (prepared.entityCount === 0) {
+          setStatusMessage(`Import failed: no supported geometry found in ${file.name}`);
+          return;
         }
-        const skippedEntries = Object.entries(summary.skipped);
-        const skippedTotal = skippedEntries.reduce((sum, [, n]) => sum + n, 0);
-        const skippedText = skippedTotal
-          ? ` — skipped ${skippedTotal}: ${skippedEntries.map(([type, n]) => `${type} ×${n}`).join(', ')}`
-          : '';
-        setStatusMessage(`Imported ${summary.imported} ${summary.imported === 1 ? 'entity' : 'entities'} from ${file.name}${skippedText}`);
+        setPendingImport({ fileName: file.name, prepared });
       } catch (error) {
         setStatusMessage(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     },
-    [history, paperReady, zoomToFit]
+    [paperReady]
   );
+
+  const confirmImport = useCallback(
+    (mmPerUnit: number) => {
+      if (!pendingImport) return;
+      const { fileName, prepared } = pendingImport;
+      setPendingImport(null);
+      history.checkpoint();
+      const summary = commitDxfImport(prepared, mmPerUnit);
+      if (summary.items.length) {
+        let bounds = summary.items[0].bounds.clone();
+        for (const item of summary.items) bounds = bounds.unite(item.bounds);
+        zoomToFit(bounds);
+      }
+      const skippedEntries = Object.entries(summary.skipped);
+      const skippedTotal = skippedEntries.reduce((sum, [, n]) => sum + n, 0);
+      const skippedText = skippedTotal
+        ? ` — skipped ${skippedTotal}: ${skippedEntries.map(([type, n]) => `${type} ×${n}`).join(', ')}`
+        : '';
+      setStatusMessage(`Imported ${summary.imported} ${summary.imported === 1 ? 'entity' : 'entities'} from ${fileName}${skippedText}`);
+    },
+    [history, pendingImport, zoomToFit]
+  );
+
+  const cancelImport = useCallback(() => setPendingImport(null), []);
 
   React.useImperativeHandle(
     ref,
@@ -380,6 +400,14 @@ function SketchCanvas(
       <canvas ref={canvasRef} className="w-full h-full bg-gray-100 focus:outline-none" data-paper-resize tabIndex={0} />
       <ZoomLevelIndicator zoom={viewport.zoom} onZoomToFit={() => zoomToFit()} />
       <StatusToast message={statusMessage} onDismiss={dismissStatus} />
+      {pendingImport && (
+        <ImportUnitsDialog
+          fileName={pendingImport.fileName}
+          prepared={pendingImport.prepared}
+          onConfirm={confirmImport}
+          onCancel={cancelImport}
+        />
+      )}
       <FloatingFinishButton
         visible={Boolean(activeTool === 'fitspline' && isSplineDrawing && splineSegmentCount > 1)}
         onClick={() => fitSplineToolInstanceRef.current?.finishSpline()}

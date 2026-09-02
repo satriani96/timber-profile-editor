@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import paper from 'paper';
 import { buildDxf } from '../exporters/ExportDXF';
-import { importDxfText } from './ImportDXF';
+import { commitDxfImport, importDxfText, prepareDxfImport } from './ImportDXF';
 import { parseDxf, millimetresPerUnit } from './dxfParser';
 import { collectCutOffsets, cutInterval, findCutInterval } from '../canvas/geometry/pathCuts';
 
@@ -156,6 +156,30 @@ describe('DXF parser', () => {
     expect(inserted.firstSegment.point.x).toBeCloseTo(10 * 25.4, 6);
     expect(inserted.lastSegment.point.x).toBeCloseTo(10 * 25.4, 6);
     expect(inserted.lastSegment.point.y).toBeCloseTo(12 * 25.4, 6);
+  });
+
+  it('lets the caller override the header units after previewing extents', () => {
+    const text = dxf([
+      0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 1, 0, 'ENDSEC',
+      0, 'SECTION', 2, 'ENTITIES',
+      0, 'LWPOLYLINE', 90, 4, 70, 1, 10, 0, 20, 0, 10, 12, 20, 0, 10, 12, 20, 12, 10, 0, 20, 12,
+      0, 'ENDSEC', 0, 'EOF',
+    ]);
+    const prepared = prepareDxfImport(text);
+    expect(prepared.headerUnits).toBe(1);
+    expect(prepared.headerMmPerUnit).toBe(25.4);
+    expect(prepared.entityCount).toBe(1);
+    expect(prepared.extents).toEqual({ width: 12, height: 12 });
+    // Probing must not leave anything in the sketch.
+    expect(sketchPaths()).toHaveLength(0);
+
+    // The header says inches, but the user knows the numbers are millimetres.
+    const summary = commitDxfImport(prepared, 1);
+    expect(summary.imported).toBe(1);
+    expect(summary.items[0].bounds.width).toBeCloseTo(12, 9);
+
+    const byHeader = importDxfText(text);
+    expect(byHeader.items[0].bounds.width).toBeCloseTo(12 * 25.4, 9);
   });
 
   it('rejects binary and malformed files', () => {
