@@ -20,7 +20,8 @@ export interface SnapConfig {
 }
 
 const SNAP_COLOR = '#16a34a';
-const MARKER_SIZE_PX = 10;
+const MARKER_SIZE_PX = 12;
+const MARKER_STROKE_PX = 2;
 /** Lower wins when several snap kinds land on the same point. */
 const SNAP_PRIORITY: Record<SnapKind, number> = {
   intersection: 0,
@@ -124,7 +125,7 @@ function buildMarker(kind: SnapKind, center: paper.Point): paper.Item {
   const half = size / 2;
   const style = {
     strokeColor: new paper.Color(SNAP_COLOR),
-    strokeWidth: 1.5 / zoom,
+    strokeWidth: MARKER_STROKE_PX / zoom,
     fillColor: null as paper.Color | null,
   };
   let marker: paper.Item;
