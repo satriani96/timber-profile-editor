@@ -1,6 +1,6 @@
 import paper from 'paper';
 import React from 'react';
-import { PaperRoundCorners } from 'paperjs-round-corners';
+import { applyClosedCornerFillet } from '../geometry/filletCorner';
 
 // Defines the state contract between the tool and the React component.
 interface StateManager {
@@ -36,99 +36,11 @@ export function createFilletTool(stateManager: StateManager) {
     const isClosedShape = path2 === null;
 
     if (isClosedShape && path1.closed) {
-      const cornerSegment = path1.segments.find(seg => seg.point.equals(cornerPoint));
-      if (!cornerSegment) return;
-
-      const newPath = path1.clone() as paper.Path;
-      const segmentToRound = newPath.segments[cornerSegment.index];
-      const success = PaperRoundCorners.round(segmentToRound, radiusValue);
-
-      if (success) {
-        // For closed shapes, we'll take a different approach
-        // Instead of trying to calculate arc parameters from the bezier curves,
-        // we'll use the original corner point and the radius to define the arc
-        
-        // Get the segments adjacent to the corner
-        const prevIndex = (cornerSegment.index - 1 + path1.segments.length) % path1.segments.length;
-        const nextIndex = (cornerSegment.index + 1) % path1.segments.length;
-        
-        const prevPoint = path1.segments[prevIndex].point;
-        const nextPoint = path1.segments[nextIndex].point;
-        
-        // Calculate vectors from corner to adjacent points
-        const vec1 = prevPoint.subtract(cornerPoint).normalize();
-        const vec2 = nextPoint.subtract(cornerPoint).normalize();
-        
-        // Calculate the angle between the vectors
-        const angle = Math.acos(vec1.dot(vec2));
-        
-        // Calculate the tangent distance
-        const tanDist = radiusValue / Math.tan(angle / 2);
-        
-        // Calculate tangent points
-        const tangentPoint1 = cornerPoint.add(vec1.multiply(tanDist));
-        const tangentPoint2 = cornerPoint.add(vec2.multiply(tanDist));
-        
-        // Calculate the midpoint vector
-        const midVector = vec1.add(vec2).normalize();
-        
-        // Calculate the center distance and center point
-        const centerDist = radiusValue / Math.sin(angle / 2);
-        const arcCenter = cornerPoint.add(midVector.multiply(centerDist));
-        
-        // Calculate angles for DXF export
-        const startAngle = Math.atan2(tangentPoint1.y - arcCenter.y, tangentPoint1.x - arcCenter.x) * 180 / Math.PI;
-        const endAngle = Math.atan2(tangentPoint2.y - arcCenter.y, tangentPoint2.x - arcCenter.x) * 180 / Math.PI;
-        
-        // Normalize angles to 0-360 range
-        let normalizedStartAngle = (startAngle + 360) % 360;
-        let normalizedEndAngle = (endAngle + 360) % 360;
-        
-        // Calculate sweep angle
-        let sweepAngle = normalizedEndAngle - normalizedStartAngle;
-        if (sweepAngle < 0) sweepAngle += 360;
-        
-        // For closed shapes, we want the smaller arc (less than 180 degrees)
-        if (sweepAngle > 180) {
-          sweepAngle = 360 - sweepAngle;
-          const temp = normalizedStartAngle;
-          normalizedStartAngle = normalizedEndAngle;
-          normalizedEndAngle = temp;
-        }
-        
-        // Add metadata to the path for DXF export
-        if (!newPath.data) newPath.data = {};
-        if (!newPath.data.fillets) newPath.data.fillets = [];
-        
-        // Add this fillet to the fillets array
-        let cornerIndexOnNew = cornerSegment.index;
-        let bestD = Infinity;
-        for (let i = 0; i < newPath.segments.length; i++) {
-          const d = newPath.segments[i].point.getDistance(cornerPoint);
-          if (d < bestD) {
-            bestD = d;
-            cornerIndexOnNew = i;
-          }
-        }
-
-        newPath.data.fillets.push({
-          cornerIndex: cornerIndexOnNew,
-          cornerPoint: cornerPoint.clone(),
-          isArc: true,
-          center: arcCenter,
-          radius: radiusValue,
-          startAngle: normalizedStartAngle,
-          endAngle: normalizedEndAngle,
-          sweepAngle: sweepAngle,
-          tangentPoint1: tangentPoint1,
-          tangentPoint2: tangentPoint2
-        });
-        
-        path1.remove();
-        path1Ref.current = newPath;
-        if(lastFilletRadiusRef) lastFilletRadiusRef.current = radiusValue;
-      } else {
-        newPath.remove();
+      const result = applyClosedCornerFillet(path1, cornerPoint, radiusValue);
+      if (result.ok) {
+        path1Ref.current = result.path;
+        if (lastFilletRadiusRef) lastFilletRadiusRef.current = radiusValue;
+      } else if (result.reason === 'round-failed') {
         alert('Failed to apply fillet. Radius may be too large.');
       }
     } else if (!isClosedShape && path2) {
