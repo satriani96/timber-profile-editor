@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import paper from 'paper';
 import { buildDxf } from '../exporters/ExportDXF';
-import { commitDxfImport, importDxfText, prepareDxfImport } from './ImportDXF';
+import { importDxfText, prepareDxfImport } from './ImportDXF';
+import { commitImport } from './prepared';
 import { parseDxf, millimetresPerUnit } from './dxfParser';
 import { collectCutOffsets, cutInterval, findCutInterval } from '../canvas/geometry/pathCuts';
 
@@ -101,8 +102,9 @@ describe('DXF export/import round trip', () => {
     if (entity.type === 'ARC') {
       expect(entity.radius).toBeCloseTo(50, 2);
       expect(entity.center.x).toBeCloseTo(0, 2);
-      expect(entity.startAngle).toBeCloseTo(0, 1);
-      expect(entity.endAngle).toBeCloseTo(90, 1);
+      // Screen-space 0°→90° (Y down) is DXF-space 270°→360° (Y up).
+      expect(entity.startAngle).toBeCloseTo(270, 1);
+      expect(entity.endAngle).toBeCloseTo(360, 1);
     }
   });
 });
@@ -146,16 +148,17 @@ describe('DXF parser', () => {
 
     // Bulge of 1 is a semicircle from (1,0) to (1,1): radius 0.5 inch, centered (1, 0.5).
     const polyline = paths.find((p) => p.segments.length > 2)!;
+    // DXF is Y-up; the sketch is Y-down, so the file's y ∈ [0, 1] inch lands at y ∈ [-25.4, 0] mm.
     expect(polyline.bounds.right).toBeCloseTo(1.5 * 25.4, 1);
-    expect(polyline.bounds.top).toBeCloseTo(0, 6);
-    expect(polyline.bounds.bottom).toBeCloseTo(25.4, 6);
+    expect(polyline.bounds.top).toBeCloseTo(-25.4, 6);
+    expect(polyline.bounds.bottom).toBeCloseTo(0, 6);
     expect(polyline.length).toBeCloseTo((1 + Math.PI * 0.5) * 25.4, 0);
 
     // Block line (0,0)-(1,0) scaled 2x, rotated 90°, inserted at (10,10): ends at (10, 12) inches.
     const inserted = paths.find((p) => p.segments.length === 2)!;
     expect(inserted.firstSegment.point.x).toBeCloseTo(10 * 25.4, 6);
     expect(inserted.lastSegment.point.x).toBeCloseTo(10 * 25.4, 6);
-    expect(inserted.lastSegment.point.y).toBeCloseTo(12 * 25.4, 6);
+    expect(inserted.lastSegment.point.y).toBeCloseTo(-12 * 25.4, 6);
   });
 
   it('lets the caller override the header units after previewing extents', () => {
@@ -166,7 +169,7 @@ describe('DXF parser', () => {
       0, 'ENDSEC', 0, 'EOF',
     ]);
     const prepared = prepareDxfImport(text);
-    expect(prepared.headerUnits).toBe(1);
+    expect(prepared.unitsNote).toContain("inches");
     expect(prepared.headerMmPerUnit).toBe(25.4);
     expect(prepared.entityCount).toBe(1);
     expect(prepared.extents).toEqual({ width: 12, height: 12 });
@@ -174,7 +177,7 @@ describe('DXF parser', () => {
     expect(sketchPaths()).toHaveLength(0);
 
     // The header says inches, but the user knows the numbers are millimetres.
-    const summary = commitDxfImport(prepared, 1);
+    const summary = commitImport(prepared, 1);
     expect(summary.imported).toBe(1);
     expect(summary.items[0].bounds.width).toBeCloseTo(12, 9);
 

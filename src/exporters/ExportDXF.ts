@@ -18,9 +18,8 @@ interface FilletMeta {
 const FREEFORM_SAMPLES = 16;
 
 /**
- * Serialises the sketch to DXF text. Coordinates are written exactly as they
- * are in the drawing (Y down); the importer applies the same convention so a
- * file round-trips without change.
+ * Serialises the sketch to DXF text in CAD's Y-up convention (see dxfPoint);
+ * the importers apply the inverse so a file round-trips without change.
  */
 export function buildDxf(project: paper.Project = paper.project): string {
   const dxf = new DxfWriter();
@@ -48,8 +47,25 @@ export const exportToDXF = () => {
   requestAnimationFrame(() => URL.revokeObjectURL(url));
 };
 
+/**
+ * The sketch is Y-down (screen space); DXF is Y-up. Flipping Y here (and again
+ * on import) makes the exported profile look in CAD/CAM exactly as it does on
+ * screen. Arc angles flip with it: a counter-clockwise sweep from a to b in
+ * screen space becomes a sweep from -b to -a in DXF space.
+ */
 function dxfPoint(p: paper.Point) {
-  return point3d(p.x, p.y);
+  return point3d(p.x, -p.y);
+}
+
+function dxfVertex(p: paper.Point) {
+  return { point: point2d(p.x, -p.y) };
+}
+
+function addArc(dxf: DxfWriter, center: paper.Point, radius: number, startAngle: number, endAngle: number) {
+  const start = ((-endAngle % 360) + 360) % 360;
+  let end = ((-startAngle % 360) + 360) % 360;
+  if (end <= start) end += 360;
+  dxf.addArc(dxfPoint(center), radius, start, end);
 }
 
 function exportPath(path: paper.Path, dxf: DxfWriter): void {
@@ -68,9 +84,7 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
       return;
     }
     if (data.isArc && typeof data.startAngle === 'number' && typeof data.endAngle === 'number') {
-      let endAngle = data.endAngle;
-      if (endAngle <= data.startAngle) endAngle += 360;
-      dxf.addArc(dxfPoint(center), radius, data.startAngle, endAngle);
+      addArc(dxf, center, radius, data.startAngle, data.endAngle);
       return;
     }
   }
@@ -81,7 +95,7 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
   }
 
   if (path.curves.every((c) => c.isStraight())) {
-    const vertices = path.segments.map((s) => ({ point: point2d(s.point.x, s.point.y) }));
+    const vertices = path.segments.map((s) => dxfVertex(s.point));
     if (path.closed) {
       dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed });
     } else if (vertices.length === 2) {
@@ -103,15 +117,13 @@ function exportCurve(curve: paper.Curve, dxf: DxfWriter): void {
   }
   const arc = fitCircularArc(curve);
   if (arc) {
-    let endAngle = arc.endAngle;
-    if (endAngle <= arc.startAngle) endAngle += 360;
-    dxf.addArc(dxfPoint(arc.center), arc.radius, arc.startAngle, endAngle);
+    addArc(dxf, arc.center, arc.radius, arc.startAngle, arc.endAngle);
     return;
   }
   const vertices = [];
   for (let i = 0; i <= FREEFORM_SAMPLES; i++) {
     const p = curve.getPointAtTime(i / FREEFORM_SAMPLES);
-    vertices.push({ point: point2d(p.x, p.y) });
+    vertices.push(dxfVertex(p));
   }
   dxf.addLWPolyline(vertices);
 }
@@ -151,10 +163,10 @@ export function fitCircularArc(curve: paper.Curve) {
 /** Writes the path's cubic Bézier curves as an exact degree-3 NURBS. */
 function exportSpline(path: paper.Path, dxf: DxfWriter): void {
   const { controlPoints, knots } = pathToBezierSpline(path);
-  const fitPoints = path.segments.map((s) => point3d(s.point.x, s.point.y, 0));
-  if (path.closed) fitPoints.push(point3d(path.firstSegment.point.x, path.firstSegment.point.y, 0));
+  const fitPoints = path.segments.map((s) => dxfPoint(s.point));
+  if (path.closed) fitPoints.push(dxfPoint(path.firstSegment.point));
   dxf.addSpline({
-    controlPoints: controlPoints.map((p) => point3d(p.x, p.y, 0)),
+    controlPoints: controlPoints.map((p) => point3d(p.x, -p.y, 0)),
     fitPoints,
     knots,
     degreeCurve: 3,
@@ -218,8 +230,6 @@ function exportFilletedPolygon(path: paper.Path, fillets: FilletMeta[], dxf: Dxf
   }
 
   for (const fillet of fillets) {
-    let endAngle = fillet.endAngle;
-    if (endAngle < fillet.startAngle) endAngle += 360;
-    dxf.addArc(dxfPoint(fillet.center), fillet.radius, fillet.startAngle, endAngle);
+    addArc(dxf, fillet.center, fillet.radius, fillet.startAngle, fillet.endAngle);
   }
 }

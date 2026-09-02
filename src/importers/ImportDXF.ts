@@ -1,30 +1,35 @@
 import paper from 'paper';
-import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
-import { arcDataFor } from '../canvas/geometry/pathCuts';
 import { millimetresPerUnit, parseDxf, type DxfDocument, type DxfEntity, type DxfPoint, type DxfVertex } from './dxfParser';
 import { bsplineToSegments, clampedUniformKnots, knotsAreValid, sampleBSpline } from './splineConversion';
-
-export interface ImportSummary {
-  imported: number;
-  skipped: Record<string, number>;
-  items: paper.Path[];
-}
+import {
+  buildCircular,
+  commitImport,
+  commitPath,
+  measureBuilder,
+  skip,
+  type GeometryBuilder,
+  type ImportSummary,
+  type PreparedImport,
+} from './prepared';
 
 const MAX_BLOCK_DEPTH = 8;
 const SPLINE_SAMPLES_PER_SPAN = 4;
 const ELLIPSE_SAMPLES = 48;
 
-/** A parsed file waiting for the user to confirm its units. */
-export interface PreparedImport {
-  doc: DxfDocument;
-  /** Bounding size of the geometry in the file's own drawing units. */
-  extents: { width: number; height: number } | null;
-  /** $INSUNITS from the header; 0 when the file does not say. */
-  headerUnits: number;
-  /** Millimetres per drawing unit implied by the header (1 when unspecified). */
-  headerMmPerUnit: number;
-  entityCount: number;
-}
+const INSUNITS_NAMES: Record<number, string> = {
+  1: 'inches',
+  2: 'feet',
+  3: 'miles',
+  4: 'millimetres',
+  5: 'centimetres',
+  6: 'metres',
+  7: 'kilometres',
+  8: 'microinches',
+  9: 'mils',
+  10: 'yards',
+  13: 'microns',
+  14: 'decimetres',
+};
 
 /**
  * Parses the file and measures its geometry without adding anything to the
@@ -34,80 +39,30 @@ export interface PreparedImport {
  */
 export function prepareDxfImport(text: string): PreparedImport {
   const doc = parseDxf(text);
-  const probe: paper.Path[] = [];
-  buildEntities(doc.entities, new paper.Matrix(), doc, probe, {}, 0);
-  let bounds: paper.Rectangle | null = null;
-  for (const item of probe) bounds = bounds ? bounds.unite(item.bounds) : item.bounds.clone();
-  probe.forEach((item) => item.remove());
+  const build: GeometryBuilder = (matrix, items, skipped) => buildEntities(doc.entities, matrix, doc, items, skipped, 0);
+  const { extents, count } = measureBuilder(build);
+  const unitName = INSUNITS_NAMES[doc.insUnits];
   return {
-    doc,
-    extents: bounds ? { width: bounds.width, height: bounds.height } : null,
-    headerUnits: doc.insUnits,
+    format: 'dxf',
+    entityCount: count,
+    extents,
     headerMmPerUnit: millimetresPerUnit(doc.insUnits),
-    entityCount: probe.length,
+    unitsNote: unitName
+      ? `File header says ${unitName} ($INSUNITS = ${doc.insUnits}).`
+      : 'File header does not specify units; assuming millimetres.',
+    unsupported: doc.unsupported,
+    build,
   };
-}
-
-/**
- * Adds the prepared geometry to the active layer, scaling drawing units to
- * millimetres by `mmPerUnit`. Coordinates are used exactly as the exporter
- * writes them (no Y flip), so round-tripping a profile is lossless.
- */
-export function commitDxfImport(prepared: PreparedImport, mmPerUnit: number): ImportSummary {
-  const unitMatrix = new paper.Matrix().scale(mmPerUnit);
-  const items: paper.Path[] = [];
-  const skipped: Record<string, number> = { ...prepared.doc.unsupported };
-  buildEntities(prepared.doc.entities, unitMatrix, prepared.doc, items, skipped, 0);
-  return { imported: items.length, skipped, items };
 }
 
 /** One-step import using the header's units (or a caller-supplied override). */
 export function importDxfText(text: string, mmPerUnit?: number): ImportSummary {
   const prepared = prepareDxfImport(text);
-  return commitDxfImport(prepared, mmPerUnit ?? prepared.headerMmPerUnit);
-}
-
-function skip(skipped: Record<string, number>, key: string) {
-  skipped[key] = (skipped[key] ?? 0) + 1;
+  return commitImport(prepared, mmPerUnit ?? prepared.headerMmPerUnit);
 }
 
 function toPoint(p: DxfPoint): paper.Point {
   return new paper.Point(p.x, p.y);
-}
-
-function pointOnCircle(center: paper.Point, radius: number, angleDeg: number): paper.Point {
-  const rad = (angleDeg * Math.PI) / 180;
-  return center.add(new paper.Point(Math.cos(rad) * radius, Math.sin(rad) * radius));
-}
-
-function style(path: paper.Path): paper.Path {
-  path.strokeColor = new paper.Color('black');
-  path.strokeWidth = BASE_STROKE_WIDTH / paper.view.zoom;
-  return path;
-}
-
-/** Transforms a locally built path into drawing space and rebuilds its circle/arc metadata. */
-function commit(
-  path: paper.Path,
-  matrix: paper.Matrix,
-  items: paper.Path[],
-  circular?: { center: paper.Point; radius: number; full: boolean }
-) {
-  path.transform(matrix);
-  if (circular) {
-    const scaling = matrix.scaling;
-    const uniform = Math.abs(Math.abs(scaling.x) - Math.abs(scaling.y)) < 1e-9;
-    if (uniform) {
-      const center = matrix.transform(circular.center);
-      const radius = circular.radius * Math.abs(scaling.x);
-      path.data = circular.full ? { center, radius, isArc: false } : arcDataFor(path, center, radius);
-    } else {
-      path.data = {};
-    }
-  } else if (!path.data?.isSpline) {
-    path.data = {};
-  }
-  items.push(style(path));
 }
 
 function buildEntities(
@@ -127,7 +82,7 @@ function buildEntities(
           skip(skipped, 'LINE (zero length)');
           break;
         }
-        commit(new paper.Path.Line({ from, to }), matrix, items);
+        commitPath(new paper.Path.Line({ from, to }), matrix, items);
         break;
       }
       case 'CIRCLE': {
@@ -136,7 +91,7 @@ function buildEntities(
           break;
         }
         const center = toPoint(entity.center);
-        commit(new paper.Path.Circle({ center, radius: entity.radius }), matrix, items, {
+        commitPath(new paper.Path.Circle({ center, radius: entity.radius }), matrix, items, {
           center,
           radius: entity.radius,
           full: true,
@@ -148,23 +103,7 @@ function buildEntities(
           skip(skipped, 'ARC (zero radius)');
           break;
         }
-        const center = toPoint(entity.center);
-        let sweep = ((entity.endAngle - entity.startAngle) % 360 + 360) % 360;
-        if (sweep === 0) sweep = 360;
-        if (sweep >= 360 - 1e-9) {
-          commit(new paper.Path.Circle({ center, radius: entity.radius }), matrix, items, {
-            center,
-            radius: entity.radius,
-            full: true,
-          });
-          break;
-        }
-        const arc = new paper.Path.Arc({
-          from: pointOnCircle(center, entity.radius, entity.startAngle),
-          through: pointOnCircle(center, entity.radius, entity.startAngle + sweep / 2),
-          to: pointOnCircle(center, entity.radius, entity.startAngle + sweep),
-        });
-        commit(arc, matrix, items, { center, radius: entity.radius, full: false });
+        buildCircular(toPoint(entity.center), entity.radius, entity.startAngle, entity.endAngle, matrix, items);
         break;
       }
       case 'POLYLINE': {
@@ -173,7 +112,7 @@ function buildEntities(
           skip(skipped, 'POLYLINE (degenerate)');
           break;
         }
-        commit(path, matrix, items);
+        commitPath(path, matrix, items);
         break;
       }
       case 'SPLINE': {
@@ -182,7 +121,7 @@ function buildEntities(
           skip(skipped, 'SPLINE (degenerate)');
           break;
         }
-        commit(path, matrix, items);
+        commitPath(path, matrix, items);
         break;
       }
       case 'ELLIPSE': {
@@ -191,7 +130,7 @@ function buildEntities(
           skip(skipped, 'ELLIPSE (degenerate)');
           break;
         }
-        commit(path, matrix, items);
+        commitPath(path, matrix, items);
         break;
       }
       case 'INSERT': {

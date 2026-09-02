@@ -176,7 +176,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="flex-grow" />
 
-      <FileButton label="Import DXF" accept=".dxf,application/dxf,image/vnd.dxf" className="bg-gray-600 hover:bg-gray-500" onFile={onImportDXF}>
+      <FileButton
+        label="Import DXF / TCW"
+        accept=".dxf,.tcw,application/dxf,image/vnd.dxf"
+        className="bg-gray-600 hover:bg-gray-500"
+        onFile={onImportDXF}
+      >
         <Icon>
           <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" />
           <path d="M8 8l4-4 4 4" />

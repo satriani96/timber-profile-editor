@@ -8,7 +8,9 @@ import { createLineTool } from '../canvas/tools/LineTool';
 import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
-import { commitDxfImport, prepareDxfImport, type PreparedImport } from '../importers/ImportDXF';
+import { prepareDxfImport } from '../importers/ImportDXF';
+import { prepareTcwImport } from '../importers/ImportTCW';
+import { commitImport, type PreparedImport } from '../importers/prepared';
 import { usePaperBootstrap } from './sketch/usePaperBootstrap';
 import { useImageCalibration } from './sketch/useImageCalibration';
 import { useImageMeasurement } from './sketch/useImageMeasurement';
@@ -228,7 +230,8 @@ function SketchCanvas(
     async (file: File) => {
       if (!paperReady) return;
       try {
-        const prepared = prepareDxfImport(await file.text());
+        const isTcw = /\.tcw$/i.test(file.name);
+        const prepared = isTcw ? await prepareTcwImport(await file.arrayBuffer()) : prepareDxfImport(await file.text());
         if (prepared.entityCount === 0) {
           setStatusMessage(`Import failed: no supported geometry found in ${file.name}`);
           return;
@@ -247,7 +250,7 @@ function SketchCanvas(
       const { fileName, prepared } = pendingImport;
       setPendingImport(null);
       history.checkpoint();
-      const summary = commitDxfImport(prepared, mmPerUnit);
+      const summary = commitImport(prepared, mmPerUnit);
       if (summary.items.length) {
         let bounds = summary.items[0].bounds.clone();
         for (const item of summary.items) bounds = bounds.unite(item.bounds);

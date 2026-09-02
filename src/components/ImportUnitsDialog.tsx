@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { PreparedImport } from '../importers/ImportDXF';
+import type { PreparedImport } from '../importers/prepared';
 
 interface ImportUnitsDialogProps {
   fileName: string;
@@ -15,21 +15,6 @@ const UNIT_OPTIONS: { label: string; mmPerUnit: number }[] = [
   { label: 'Inches', mmPerUnit: 25.4 },
   { label: 'Feet', mmPerUnit: 304.8 },
 ];
-
-const INSUNITS_NAMES: Record<number, string> = {
-  1: 'inches',
-  2: 'feet',
-  3: 'miles',
-  4: 'millimetres',
-  5: 'centimetres',
-  6: 'metres',
-  7: 'kilometres',
-  8: 'microinches',
-  9: 'mils',
-  10: 'yards',
-  13: 'microns',
-  14: 'decimetres',
-};
 
 function formatMm(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(2)} m`;
@@ -47,11 +32,6 @@ const ImportUnitsDialog: React.FC<ImportUnitsDialogProps> = ({ fileName, prepare
   const options = UNIT_OPTIONS.some((o) => o.mmPerUnit === prepared.headerMmPerUnit)
     ? UNIT_OPTIONS
     : [...UNIT_OPTIONS, { label: `File units (×${prepared.headerMmPerUnit} mm)`, mmPerUnit: prepared.headerMmPerUnit }];
-
-  const headerName = INSUNITS_NAMES[prepared.headerUnits];
-  const headerText = headerName
-    ? `File header says ${headerName} ($INSUNITS = ${prepared.headerUnits}).`
-    : 'File header does not specify units; assuming millimetres.';
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -77,7 +57,7 @@ const ImportUnitsDialog: React.FC<ImportUnitsDialogProps> = ({ fileName, prepare
           Import {fileName}
         </h2>
         <p className="mb-3 text-gray-600">
-          {prepared.entityCount} {prepared.entityCount === 1 ? 'entity' : 'entities'}. {headerText}
+          {prepared.entityCount} {prepared.entityCount === 1 ? 'entity' : 'entities'}. {prepared.unitsNote}
         </p>
 
         <label className="mb-1 block font-medium" htmlFor="import-units-select">
