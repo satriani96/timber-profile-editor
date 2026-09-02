@@ -1,6 +1,6 @@
 import paper from 'paper';
 import { isDimensionGroup, mirrorDimension, rotateDimension, translateDimension } from '../dimensions';
-import { mirrorPath, movePath, rotatePath } from '../geometry/itemData';
+import { clonePathData, mirrorPath, movePath, rotatePath } from '../geometry/itemData';
 import { isSelectableItem } from './marquee';
 
 export function collectSelectedTransformItems(): paper.Item[] {
@@ -34,7 +34,7 @@ export function applyMirrorSelection(items: paper.Item[], axisPoint: paper.Point
 export function mirrorCopyItems(items: paper.Item[], axisPoint: paper.Point, axisDirection: paper.Point): paper.Item[] {
   const copies = items.map((item) => {
     const clone = item.clone();
-    clone.data = { ...(item.data as Record<string, unknown>) };
+    clone.data = clonePathData((item.data ?? {}) as Record<string, unknown>);
     delete clone.data.isTemporary;
     delete clone.data.uid;
     clone.selected = false;
@@ -56,7 +56,7 @@ export function itemsBoundsCenter(items: paper.Item[]): paper.Point {
 export function clonePreview(items: paper.Item[]): paper.Item[] {
   return items.map((item) => {
     const clone = item.clone();
-    clone.data = { ...(item.data as Record<string, unknown>), isTemporary: true };
+    clone.data = { ...clonePathData((item.data ?? {}) as Record<string, unknown>), isTemporary: true };
     clone.selected = false;
     clone.locked = true;
     clone.opacity = 0.55;

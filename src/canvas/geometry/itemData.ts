@@ -72,6 +72,24 @@ export function rotatePath(path: paper.Path, angleDeg: number, center: paper.Poi
   }
 }
 
+/** Deep-clones `data` so transforms on a copy cannot mutate the original metadata. */
+export function clonePathData(data: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...data };
+  for (const key of POINT_KEYS) {
+    const value = next[key];
+    if (value instanceof paper.Point) next[key] = value.clone();
+  }
+  if (Array.isArray(next.fitPoints)) {
+    next.fitPoints = next.fitPoints.map((p) => (p instanceof paper.Point ? p.clone() : p));
+  }
+  if (Array.isArray(next.fillets)) {
+    next.fillets = next.fillets.map((fillet) =>
+      fillet && typeof fillet === 'object' ? clonePathData(fillet as Record<string, unknown>) : fillet,
+    );
+  }
+  return next;
+}
+
 export function reflectPoint(point: paper.Point, axisPoint: paper.Point, axisDirection: paper.Point): paper.Point {
   const dir = axisDirection.normalize();
   if (dir.isZero()) return point.clone();
