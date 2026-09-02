@@ -28,3 +28,12 @@ export function movePath(path: paper.Path, delta: paper.Point): void {
   path.position = path.position.add(delta);
   translatePathData(path, delta);
 }
+
+/** Keeps layer/uid when a tool replaces `path.data`. */
+export function preserveMeta(path: paper.Path, data: Record<string, unknown>): Record<string, unknown> {
+  const layer = path.data?.layer;
+  const uid = path.data?.uid;
+  if (typeof layer === 'string') data.layer = layer;
+  if (typeof uid === 'string') data.uid = uid;
+  return data;
+}

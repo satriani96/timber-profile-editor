@@ -6,6 +6,8 @@ import { createFilletTool } from '../canvas/tools/FilletTool';
 import { createFitSplineTool } from '../canvas/tools/FitSplineTool';
 import { createLineTool } from '../canvas/tools/LineTool';
 import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
+import { createDimensionTool } from '../canvas/tools/DimensionTool';
+import { ancestorDimension } from '../canvas/dimensions';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
@@ -19,7 +21,9 @@ import { useViewport } from './sketch/useViewport';
 import { useNumericInput } from './sketch/useNumericInput';
 import { useSketchKeyboard } from './sketch/useSketchKeyboard';
 import { attachSketchPaperTools } from './sketch/attachSketchPaperTools';
+import { useDimensionEntry } from './sketch/useDimensionEntry';
 import NumericInputPanel from './NumericInputPanel';
+import DimensionInput from './DimensionInput';
 import FloatingFinishButton from './FloatingFinishButton';
 import { ImageUpload } from '../canvas/ImageUpload';
 import ImageSideToolbar from './ImageSideToolbar';
@@ -51,6 +55,7 @@ const TOOL_CURSORS: Record<SketchTool, string> = {
   fitspline: 'crosshair',
   trim: 'crosshair',
   split: 'crosshair',
+  dimension: 'crosshair',
 };
 
 function SketchCanvas(
@@ -145,6 +150,9 @@ function SketchCanvas(
   const isDrawingSplineRef = useRef<boolean>(false);
   const selectedSplinePointRef = useRef<{ path: paper.Path; index: number } | null>(null);
   const lastFilletRadiusRef = useRef<number>(10);
+  const dimensionToolRef = useRef<paper.Tool | null>(null);
+  const dimensionToolInstanceRef = useRef<ReturnType<typeof createDimensionTool> | null>(null);
+  const isDimensioningRef = useRef(false);
   const previousToolRef = useRef<SketchTool>('select');
   const lastActivatedToolRef = useRef<SketchTool>('select');
   const draggedSegmentRef = useRef<paper.Segment | null>(null);
@@ -156,6 +164,11 @@ function SketchCanvas(
 
   const numeric = useNumericInput({ activeTool, session, cornerPointRef, filletToolInstanceRef, lineToolInstanceRef });
   const { reset: resetNumericInput, openRadiusAt } = numeric;
+
+  const cancelDimension = useCallback(() => {
+    dimensionToolInstanceRef.current?.cancel();
+    isDimensioningRef.current = false;
+  }, []);
 
   const finishCurrentSpline = useCallback(() => {
     currentSplineRef.current = null;
@@ -187,13 +200,23 @@ function SketchCanvas(
     hideSnapIndicator();
   }, [hideSnapIndicator]);
 
+  const onDimensionDriven = useCallback(() => {
+    updateAllStrokeWidths();
+    paper.view.update();
+  }, [updateAllStrokeWidths]);
+  const dimEntry = useDimensionEntry({ history, afterChange: onDimensionDriven });
+  const closeDimEntry = dimEntry.close;
+  const openDimEntry = dimEntry.openFor;
+
   const afterHistoryChange = useCallback(() => {
     clearTransientVisuals();
     resetNumericInput();
+    closeDimEntry();
+    cancelDimension();
     finishCurrentFilletOperation();
     updateAllStrokeWidths();
     paper.view.update();
-  }, [clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
+  }, [cancelDimension, clearTransientVisuals, closeDimEntry, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
 
   const runHistory = useCallback(
     (action: 'undo' | 'redo') => {
@@ -218,6 +241,12 @@ function SketchCanvas(
     cancelCurrentDrawing,
     afterHistoryChange,
     zoomToFit,
+    cancelDimension,
+    isDimensioningRef,
+    onEditSelectedDimension: () => {
+      const dim = paper.project.selectedItems.find((item) => item.data?.isDimension);
+      if (dim instanceof paper.Group) openDimEntry(dim);
+    },
   });
 
   // --- DXF import/export ---
@@ -321,6 +350,10 @@ function SketchCanvas(
       finishCurrentFilletOperation,
       finishCurrentSpline,
       resetNumericInput,
+      dimensionToolRef,
+      dimensionToolInstanceRef,
+      isDimensioningRef,
+      onDimensionPlaced: (group) => openDimEntry(group),
     });
     // Refs and setters are stable; re-wiring only when Paper becomes ready.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional single wire-up
@@ -338,6 +371,7 @@ function SketchCanvas(
     if (!isTemporaryPan && previous !== activeTool) {
       if (isDrawingLineRef.current) cancelCurrentDrawing();
       if (currentSplineRef.current) cancelSpline();
+      if (isDimensioningRef.current) cancelDimension();
       finishCurrentFilletOperation();
     }
     clearTransientVisuals();
@@ -353,6 +387,7 @@ function SketchCanvas(
       fitspline: fitSplineToolRef,
       trim: trimToolRef,
       split: splitToolRef,
+      dimension: dimensionToolRef,
     };
     if (activeTool === 'fitspline') {
       isDrawingSplineRef.current = true;
@@ -362,7 +397,7 @@ function SketchCanvas(
       isDrawingSplineRef.current = false;
     }
     tools[activeTool].current?.activate();
-  }, [activeTool, cancelCurrentDrawing, cancelSpline, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
+  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelSpline, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
 
   // --- Canvas mouse listeners: wheel zoom, right/middle-button pan, spline double-click ---
   useEffect(() => {
@@ -380,6 +415,17 @@ function SketchCanvas(
     };
     const onContextMenu = (e: Event) => e.preventDefault();
     const onDblClick = (e: MouseEvent) => {
+      if (activeTool === 'select') {
+        const point = paper.view.viewToProject(new paper.Point(e.offsetX, e.offsetY));
+        const hit = paper.project.hitTest(point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
+        const dim = hit ? ancestorDimension(hit.item) : null;
+        if (dim) {
+          e.preventDefault();
+          dim.selected = true;
+          openDimEntry(dim);
+          return;
+        }
+      }
       if (activeTool !== 'fitspline' || !isDrawingSplineRef.current) return;
       e.preventDefault();
       fitSplineToolInstanceRef.current?.finishSpline();
@@ -403,7 +449,7 @@ function SketchCanvas(
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('dblclick', onDblClick);
     };
-  }, [activeTool, handleWheel, clearTransientVisuals]);
+  }, [activeTool, handleWheel, clearTransientVisuals, openDimEntry]);
 
   return (
     <div className="w-full h-full relative">
@@ -423,6 +469,7 @@ function SketchCanvas(
         onClick={() => fitSplineToolInstanceRef.current?.finishSpline()}
       />
       <NumericInputPanel {...numeric.panelProps} />
+      <DimensionInput {...dimEntry.inputProps} />
       {paperReady && <LayersPanel history={history} />}
       <ImageSideToolbar
         key={imageVersion}

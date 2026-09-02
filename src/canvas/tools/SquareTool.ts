@@ -1,4 +1,5 @@
 import paper from 'paper';
+import { preserveMeta } from '../geometry/itemData';
 import { assignActiveLayer } from '../layers';
 import { adoptGeometry, isPrimaryButton, sketchStrokeColor, sketchStrokeWidth, type DrawingState } from './drawingState';
 
@@ -16,16 +17,14 @@ export function createSquareTool(stateManager: DrawingState) {
   } = stateManager;
 
   function setCorner(path: paper.Path, start: paper.Point, end: paper.Point) {
-    const layer = path.data?.layer;
     adoptGeometry(path, new paper.Path.Rectangle({ from: start, to: end, insert: false }));
-    path.data = {
+    path.data = preserveMeta(path, {
       isRect: true,
       startPoint: start,
       endPoint: end,
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
-    };
-    if (layer) path.data.layer = layer;
+    });
   }
 
   return {

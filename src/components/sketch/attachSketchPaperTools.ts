@@ -7,8 +7,9 @@ import { createCircleTool } from '../../canvas/tools/CircleTool';
 import { createFilletTool } from '../../canvas/tools/FilletTool';
 import { createFitSplineTool } from '../../canvas/tools/FitSplineTool';
 import { createSplitTool, createTrimTool } from '../../canvas/tools/CutTool';
+import { createDimensionTool } from '../../canvas/tools/DimensionTool';
 import { adoptGeometry, isPrimaryButton, type DrawingState } from '../../canvas/tools/drawingState';
-import { movePath } from '../../canvas/geometry/itemData';
+import { movePath, preserveMeta } from '../../canvas/geometry/itemData';
 import { getSnapPoint } from '../../utils/snapHelpers';
 import type { SnapConfig } from '../../utils/snapHelpers';
 import type { ImageUpload } from '../../canvas/ImageUpload';
@@ -32,6 +33,10 @@ export interface SketchPaperToolsContext {
   splitToolInstanceRef: MutableRefObject<ReturnType<typeof createSplitTool> | null>;
   fitSplineToolRef: MutableRefObject<paper.Tool | null>;
   fitSplineToolInstanceRef: MutableRefObject<ReturnType<typeof createFitSplineTool> | null>;
+  dimensionToolRef: MutableRefObject<paper.Tool | null>;
+  dimensionToolInstanceRef: MutableRefObject<ReturnType<typeof createDimensionTool> | null>;
+  isDimensioningRef: MutableRefObject<boolean>;
+  onDimensionPlaced: (group: paper.Group) => void;
   currentSplineRef: MutableRefObject<paper.Path | null>;
   isDrawingSplineRef: MutableRefObject<boolean>;
   selectedSplinePointRef: MutableRefObject<{ path: paper.Path; index: number } | null>;
@@ -85,7 +90,8 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         !ctx.isPanningRef.current &&
         !ctx.isSpacebarPanRef.current &&
         !ctx.isDrawingLineRef.current &&
-        !ctx.currentSplineRef.current
+        !ctx.currentSplineRef.current &&
+        !ctx.isDimensioningRef.current
       ) {
         ctx.history.checkpoint();
       }
@@ -109,7 +115,7 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         // Dragging a circle's quadrant resizes it instead of denting it.
         const radius = Math.max(1e-6, data.center.getDistance(target));
         adoptGeometry(path, new paper.Path.Circle({ center: data.center, radius, insert: false }));
-        path.data = { center: data.center, radius, isArc: false, layer: data.layer };
+        path.data = preserveMeta(path, { center: data.center, radius, isArc: false });
       } else {
         // Arcs stay circular: a vertex drag moves the whole arc.
         movePath(path, event.delta);
@@ -234,4 +240,18 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   splitPaperTool.onMouseMove = splitTool.onMouseMove;
   splitPaperTool.onMouseDown = withCheckpoint(splitTool.onMouseDown);
   splitPaperTool.onMouseDrag = splitTool.onMouseDrag;
+
+  const dimensionTool = createDimensionTool({
+    isPanningRef: ctx.isPanningRef,
+    isSpacebarPanRef: ctx.isSpacebarPanRef,
+    isDimensioningRef: ctx.isDimensioningRef,
+    handleDragPan,
+    getSnapConfig: () => snapConfig,
+    onPlaced: ctx.onDimensionPlaced,
+  });
+  ctx.dimensionToolInstanceRef.current = dimensionTool;
+  const dimensionPaperTool = ensureTool(ctx.dimensionToolRef);
+  dimensionPaperTool.onMouseDown = withCheckpoint(dimensionTool.onMouseDown);
+  dimensionPaperTool.onMouseMove = dimensionTool.onMouseMove;
+  dimensionPaperTool.onMouseDrag = dimensionTool.onMouseDrag;
 }

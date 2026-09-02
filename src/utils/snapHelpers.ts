@@ -44,6 +44,7 @@ function collectCandidatePaths(pathToIgnore: paper.Path | null, config: SnapConf
       c.length > 0 &&
       !c.data?.isTemporary &&
       !c.data?.isMeasurement &&
+      !c.data?.isDimension &&
       c !== currentPathRef.current &&
       c !== snapIndicatorRef.current &&
       c !== pathToIgnore

@@ -236,7 +236,8 @@ export function createFilletTool(stateManager: StateManager) {
       const hitResult = paper.project.hitTest(event.point, {
         segments: true,
         tolerance: 10 / paper.view.zoom,
-        match: (h: paper.HitResult) => !h.item.data?.isTemporary && !h.item.data?.isMeasurement,
+        match: (h: paper.HitResult) =>
+          !h.item.data?.isTemporary && !h.item.data?.isMeasurement && !h.item.data?.isDimension && !h.item.parent?.data?.isDimension,
       });
       if (!hitResult || !hitResult.segment || !(hitResult.item instanceof paper.Path)) {
         return;

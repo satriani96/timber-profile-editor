@@ -148,6 +148,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <circle cx="12" cy="12" r="1.5" fill="currentColor" />
         </Icon>
       </ToolButton>
+      <ToolButton label="Dimension" shortcut="D" {...tool('dimension')}>
+        <Icon>
+          <path d="M4 6v12" />
+          <path d="M20 6v12" />
+          <path d="M4 12h16" />
+          <path d="M7 10l-3 2 3 2" />
+          <path d="M17 10l3 2-3 2" />
+        </Icon>
+      </ToolButton>
 
       <Divider />
 

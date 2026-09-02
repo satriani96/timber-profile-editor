@@ -1,5 +1,6 @@
 import paper from 'paper';
 import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
+import { ancestorDimension } from '../dimensions';
 import { movePath } from '../geometry/itemData';
 import { isPrimaryButton, isShiftHeld } from './drawingState';
 
@@ -42,6 +43,22 @@ export function createSelectTool(stateManager: StateManager) {
       movingPaths = [];
       const tolerance = 8 / paper.view.zoom;
       const additive = isShiftHeld(event);
+
+      const dimHit = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        bounds: true,
+        tolerance,
+      });
+      const dimension = dimHit ? ancestorDimension(dimHit.item) : null;
+      if (dimension) {
+        if (additive) dimension.selected = !dimension.selected;
+        else if (!dimension.selected) {
+          paper.project.deselectAll();
+          dimension.selected = true;
+        }
+        return;
+      }
 
       const handleHit = paper.project.hitTest(event.point, { handles: true, tolerance, match: matchSketch });
       if (handleHit && handleHit.item instanceof paper.Path && handleHit.item.data?.isSpline) {

@@ -7,4 +7,5 @@ export type SketchTool =
   | 'fillet'
   | 'fitspline'
   | 'trim'
-  | 'split';
+  | 'split'
+  | 'dimension';

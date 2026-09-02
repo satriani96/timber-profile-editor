@@ -20,6 +20,9 @@ interface Args {
   cancelCurrentDrawing: () => void;
   afterHistoryChange: () => void;
   zoomToFit: () => void;
+  cancelDimension: () => void;
+  isDimensioningRef: MutableRefObject<boolean>;
+  onEditSelectedDimension: () => void;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -31,6 +34,7 @@ const TOOL_SHORTCUTS: Record<string, SketchTool> = {
   f: 'fillet',
   t: 'trim',
   x: 'split',
+  d: 'dimension',
 };
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -52,6 +56,9 @@ export function useSketchKeyboard({
   cancelCurrentDrawing,
   afterHistoryChange,
   zoomToFit,
+  cancelDimension,
+  isDimensioningRef,
+  onEditSelectedDimension,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -83,13 +90,25 @@ export function useSketchKeyboard({
         case 'Backspace': {
           if (activeTool !== 'select') return;
           event.preventDefault();
-          const doomed = paper.project.selectedItems.filter((item) => isSketchPath(item) || item.data?.isMeasurement);
+          const doomed = paper.project.selectedItems.filter(
+            (item) => isSketchPath(item) || item.data?.isMeasurement || item.data?.isDimension
+          );
           if (!doomed.length) return;
           history.checkpoint();
           doomed.forEach((item) => item.remove());
           return;
         }
+        case 'Enter':
+          if (activeTool === 'select') {
+            event.preventDefault();
+            onEditSelectedDimension();
+          }
+          return;
         case 'Escape':
+          if (isDimensioningRef.current) {
+            cancelDimension();
+            return;
+          }
           if (session.isDrawingLineRef.current) cancelCurrentDrawing();
           else if (currentSplineRef.current) cancelSpline();
           else if (numeric.isActive) numeric.reset();
@@ -116,7 +135,13 @@ export function useSketchKeyboard({
       }
 
       const shortcut = TOOL_SHORTCUTS[key];
-      if (shortcut && !event.altKey && !session.isDrawingLineRef.current && !currentSplineRef.current) {
+      if (
+        shortcut &&
+        !event.altKey &&
+        !session.isDrawingLineRef.current &&
+        !currentSplineRef.current &&
+        !isDimensioningRef.current
+      ) {
         setActiveTool(shortcut);
       }
     };
@@ -148,5 +173,8 @@ export function useSketchKeyboard({
     cancelCurrentDrawing,
     afterHistoryChange,
     zoomToFit,
+    cancelDimension,
+    isDimensioningRef,
+    onEditSelectedDimension,
   ]);
 }

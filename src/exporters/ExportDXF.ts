@@ -1,7 +1,8 @@
 import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d, type CommonEntityOptions } from '@tarikjabiri/dxf';
 import paper from 'paper';
+import { dimensionLabel, dimensionOffset, readDimensionData } from '../canvas/dimensions';
 import { arcAngles } from '../canvas/geometry/pathCuts';
-import { getLayerState, itemLayerName } from '../canvas/layers';
+import { DIMENSIONS_LAYER, getLayerState, itemLayerName } from '../canvas/layers';
 import { pathToBezierSpline } from '../importers/splineConversion';
 import { hexToAci } from './aci';
 
@@ -29,12 +30,45 @@ export function buildDxf(project: paper.Project = paper.project): string {
   registerLayers(dxf, project);
 
   for (const item of project.activeLayer.children) {
-    if (!(item instanceof paper.Path)) continue;
     if (item.data?.isTemporary || item.data?.isMeasurement) continue;
+    if (item.data?.isDimension && item instanceof paper.Group) {
+      exportDimension(item, dxf);
+      continue;
+    }
+    if (!(item instanceof paper.Path)) continue;
     if (item.segments.length < 2 || item.length <= 0) continue;
     exportPath(item, dxf);
   }
   return dxf.stringify();
+}
+
+function exportDimension(group: paper.Group, dxf: DxfWriter) {
+  const data = readDimensionData(group);
+  const opts = {
+    layerName: DIMENSIONS_LAYER,
+    text: dimensionLabel(data.kind, data.value),
+    ActualMeasurement: data.value,
+  };
+  const first = dxfPoint(data.p1);
+  const second = dxfPoint(data.p2);
+  const offset = -dimensionOffset(data.p1, data.p2, data.textPoint, data.kind);
+  const leaderLength = data.textPoint.getDistance(data.p2);
+  switch (data.kind) {
+    case 'horizontal':
+      dxf.addLinearDim(first, second, { ...opts, angle: 0, offset });
+      break;
+    case 'vertical':
+      dxf.addLinearDim(first, second, { ...opts, angle: 90, offset });
+      break;
+    case 'diameter':
+      dxf.addDiameterDim(first, second, { ...opts, leaderLength });
+      break;
+    case 'radius':
+      dxf.addRadialDim(first, second, { ...opts, leaderLength });
+      break;
+    default:
+      dxf.addAlignedDim(first, second, { ...opts, offset });
+  }
 }
 
 function registerLayers(dxf: DxfWriter, project: paper.Project) {

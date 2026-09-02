@@ -5,13 +5,15 @@ const CUT_EPSILON = 1e-3;
 /** An open path's endpoint within this distance of another path counts as connected to it. */
 const TOUCH_EPSILON = 0.05;
 
-/** Paths that are part of the sketch (not previews, snap markers, or measurement annotations). */
+/** Paths that are part of the sketch (not previews, snap markers, or annotations). */
 export function isSketchPath(item: paper.Item): item is paper.Path {
   return (
     item instanceof paper.Path &&
     item.visible &&
     !item.data?.isTemporary &&
     !item.data?.isMeasurement &&
+    !item.data?.isDimension &&
+    !item.parent?.data?.isDimension &&
     item.length > 0
   );
 }
@@ -194,6 +196,7 @@ export function assignPieceData(piece: paper.Path, sourceData: Record<string, un
   const center = sourceData.center;
   const radius = sourceData.radius;
   const layer = typeof sourceData.layer === 'string' ? sourceData.layer : undefined;
+  const uid = typeof sourceData.uid === 'string' ? sourceData.uid : undefined;
   if (center instanceof paper.Point && typeof radius === 'number') {
     if (piece.closed) {
       piece.data = { center: center.clone(), radius, isArc: false };
@@ -201,14 +204,16 @@ export function assignPieceData(piece: paper.Path, sourceData: Record<string, un
       piece.data = arcDataFor(piece, center, radius);
     }
     if (layer) piece.data.layer = layer;
+    if (uid) piece.data.uid = uid;
     return;
   }
   if (sourceData.isSpline) {
     piece.data = { isSpline: true, fitPoints: piece.segments.map((s) => s.point.clone()) };
     if (layer) piece.data.layer = layer;
+    if (uid) piece.data.uid = uid;
     return;
   }
-  piece.data = layer ? { layer } : {};
+  piece.data = { ...(layer ? { layer } : {}), ...(uid ? { uid } : {}) };
 }
 
 /**

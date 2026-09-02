@@ -79,6 +79,17 @@ export function syncItemStyles(): void {
     const layer = byName.get(itemLayerName(item));
     if (!layer) continue;
     item.visible = layer.visible;
+    if (item.data?.isDimension && item instanceof paper.Group) {
+      const color = new paper.Color(layer.color);
+      for (const child of item.children) {
+        if (child instanceof paper.PointText) child.fillColor = color;
+        else if (child instanceof paper.Path) {
+          child.strokeColor = color;
+          if (child.fillColor) child.fillColor = color;
+        }
+      }
+      continue;
+    }
     if (item instanceof paper.Path && !item.data?.isDimension) {
       item.strokeColor = new paper.Color(layer.color);
     }

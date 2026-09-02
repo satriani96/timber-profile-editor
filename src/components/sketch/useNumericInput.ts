@@ -4,6 +4,7 @@ import type { SketchTool } from '../../types';
 import type { DrawingSession } from './useDrawingSession';
 import type { createFilletTool } from '../../canvas/tools/FilletTool';
 import type { createLineTool } from '../../canvas/tools/LineTool';
+import { preserveMeta } from '../../canvas/geometry/itemData';
 import { adoptGeometry } from '../../canvas/tools/drawingState';
 
 export type NumericField = 'length' | 'angle' | 'width' | 'height' | 'diameter' | 'radius';
@@ -91,7 +92,7 @@ export function useNumericInput({ activeTool, session, cornerPointRef, filletToo
     const start = (path.data?.startPoint as paper.Point | undefined) ?? path.bounds.topLeft;
     const end = start.add([width, height]);
     adoptGeometry(path, new paper.Path.Rectangle({ from: start, to: end, insert: false }));
-    path.data = { isRect: true, startPoint: start, endPoint: end, width, height, layer: path.data?.layer };
+    path.data = preserveMeta(path, { isRect: true, startPoint: start, endPoint: end, width, height });
     session.finishCurrentDrawing();
     reset();
   }, [reset, session, values.height, values.width]);
@@ -102,7 +103,7 @@ export function useNumericInput({ activeTool, session, cornerPointRef, filletToo
     if (!path || isNaN(diameter) || diameter <= 0) return;
     const center = path.data.center as paper.Point;
     adoptGeometry(path, new paper.Path.Circle({ center, radius: diameter / 2, insert: false }));
-    path.data = { center, radius: diameter / 2, isArc: false, layer: path.data?.layer };
+    path.data = preserveMeta(path, { center, radius: diameter / 2, isArc: false });
     session.finishCurrentDrawing();
     reset();
   }, [reset, session, values.diameter]);

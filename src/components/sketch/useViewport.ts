@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import paper from 'paper';
 import { BASE_STROKE_WIDTH } from './constants';
+import { rescaleDimension } from '../../canvas/dimensions';
 
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 400;
@@ -14,6 +15,10 @@ export function useViewport(paperReady: boolean) {
     if (!paperReady) return;
     const z = paper.view.zoom;
     paper.project.activeLayer.children.forEach((item) => {
+      if (item.data?.isDimension && item instanceof paper.Group) {
+        rescaleDimension(item);
+        return;
+      }
       if (item.data?.isMeasurement && item instanceof paper.Group) {
         item.children.forEach((child) => {
           if (child instanceof paper.PointText) child.fontSize = 14 / z;
