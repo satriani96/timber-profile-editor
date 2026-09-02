@@ -1,4 +1,3 @@
-import paper from 'paper';
 import { PaperRoundCorners } from 'paperjs-round-corners';
 
 export interface FilletMeta {

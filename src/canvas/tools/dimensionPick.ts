@@ -68,23 +68,37 @@ function filletForCurve(path: paper.Path, curve: paper.Curve): FilletRecord | nu
   return null;
 }
 
+interface CircularHit {
+  center: paper.Point;
+  radius?: number;
+}
+
+function pointOnCircle(center: paper.Point, radius: number, from: paper.Point): paper.Point {
+  const dir = from.subtract(center);
+  if (dir.isZero()) return from.clone();
+  return center.add(dir.normalize().multiply(radius));
+}
+
 /**
- * Center of the circular entity under `hit`, classified from the clicked
- * curve — not the whole path. Closed fillets live on the same path as the
- * adjacent straight sides.
+ * Circular entity under `hit`, classified from the clicked curve — not the
+ * whole path. Closed fillets live on the same path as the adjacent sides.
  */
-function circularCenterForHit(hit: SketchPathHit): paper.Point | null {
+function circularForHit(hit: SketchPathHit): CircularHit | null {
   const path = hit.path;
   if (isCircle(path) || isArcPath(path)) {
-    return (path.data.center as paper.Point).clone();
+    const center = (path.data.center as paper.Point).clone();
+    const radius = typeof path.data.radius === 'number' ? path.data.radius : undefined;
+    return { center, radius };
   }
   const curve = hit.location.curve;
   if (!curve || path.data?.isSpline) return null;
   const fillet = filletForCurve(path, curve);
-  if (fillet?.center instanceof paper.Point) return fillet.center.clone();
+  if (fillet?.center instanceof paper.Point && typeof fillet.radius === 'number') {
+    return { center: fillet.center.clone(), radius: fillet.radius };
+  }
   if (!curve.isStraight()) {
     const fit = fitCircularArc(curve);
-    if (fit) return fit.center.clone();
+    if (fit) return { center: fit.center.clone(), radius: fit.radius };
   }
   return null;
 }
@@ -94,8 +108,8 @@ function circularCenterForHit(hit: SketchPathHit): paper.Point | null {
  * dimensions work at fillet tangents. A midpoint that sits on the circular
  * curve itself does not — that click is a radius/diameter pick.
  */
-function snapOverridesCircular(snap: SnapResult, hit: SketchPathHit | null, center: paper.Point | null): boolean {
-  if (!center || !hit) return true;
+function snapOverridesCircular(snap: SnapResult, hit: SketchPathHit | null, circular: CircularHit | null): boolean {
+  if (!circular || !hit) return true;
   if (snap.kind !== 'midpoint') return true;
   const curve = hit.location.curve;
   if (!curve) return true;
@@ -111,29 +125,35 @@ function snapOverridesCircular(snap: SnapResult, hit: SketchPathHit | null, cent
 export function pickDimensionTarget(point: paper.Point, snapConfig: SnapConfig): DimensionPick | null {
   const snap = findSnap(point, snapConfig);
   const hit = nearestSketchPath(point, DIMENSION_HIT_PX / paper.view.zoom);
-  const center = hit ? circularCenterForHit(hit) : null;
+  const circular = hit ? circularForHit(hit) : null;
 
-  if (snap && snapOverridesCircular(snap, hit, center)) {
+  if (snap && snapOverridesCircular(snap, hit, circular)) {
     return { type: 'point', point: snap.point.clone(), kind: snap.kind };
   }
   if (snap) updateSnapIndicator(null, snapConfig.snapIndicatorRef);
 
   if (!hit) return null;
 
-  if (isCircle(hit.path)) {
+  if (isCircle(hit.path) && circular) {
     return {
       type: 'circle',
       path: hit.path,
-      center: (hit.path.data.center as paper.Point).clone(),
-      onCurve: hit.location.point.clone(),
+      center: circular.center,
+      onCurve:
+        circular.radius != null
+          ? pointOnCircle(circular.center, circular.radius, hit.location.point)
+          : hit.location.point.clone(),
     };
   }
-  if (center) {
+  if (circular) {
     return {
       type: 'arc',
       path: hit.path,
-      center,
-      onCurve: hit.location.point.clone(),
+      center: circular.center,
+      onCurve:
+        circular.radius != null
+          ? pointOnCircle(circular.center, circular.radius, hit.location.point)
+          : hit.location.point.clone(),
       curveIndex: hit.location.curve?.index,
     };
   }

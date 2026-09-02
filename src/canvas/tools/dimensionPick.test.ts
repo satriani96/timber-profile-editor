@@ -137,7 +137,7 @@ describe('dimension pick on a closed filleted square', () => {
     expect(pick.center.x).toBeCloseTo(fillet.center.x);
     expect(pick.center.y).toBeCloseTo(fillet.center.y);
     const value = measureDimension('radius', pick.center, pick.onCurve);
-    expect(value).toBeCloseTo(10, 0);
+    expect(value).toBeCloseTo(10);
     const group = createDimension({
       kind: 'radius',
       p1: pick.center,
@@ -146,7 +146,7 @@ describe('dimension pick on a closed filleted square', () => {
       value,
     });
     expect(group.data.kind).toBe('radius');
-    expect(group.data.value).toBeCloseTo(10, 0);
+    expect(group.data.value).toBeCloseTo(10);
   });
 
   it('picks a linear dimension on a straight side of the same filleted path', () => {
