@@ -11,6 +11,7 @@ import { createDimensionTool } from '../../canvas/tools/DimensionTool';
 import { createMoveTool } from '../../canvas/tools/MoveTool';
 import { createRotateTool } from '../../canvas/tools/RotateTool';
 import { createPasteTool } from '../../canvas/tools/PasteTool';
+import { createMirrorTool } from '../../canvas/tools/MirrorTool';
 import { adoptGeometry, isPrimaryButton, type DrawingState } from '../../canvas/tools/drawingState';
 import { movePath, preserveMeta } from '../../canvas/geometry/itemData';
 import { getSnapPoint } from '../../utils/snapHelpers';
@@ -49,6 +50,9 @@ export interface SketchPaperToolsContext {
   pasteToolInstanceRef: MutableRefObject<ReturnType<typeof createPasteTool> | null>;
   isPastingRef: MutableRefObject<boolean>;
   restoreActiveTool: () => void;
+  mirrorToolRef: MutableRefObject<paper.Tool | null>;
+  mirrorToolInstanceRef: MutableRefObject<ReturnType<typeof createMirrorTool> | null>;
+  isMirroringRef: MutableRefObject<boolean>;
   onHint: (message: string | null) => void;
   currentSplineRef: MutableRefObject<paper.Path | null>;
   isDrawingSplineRef: MutableRefObject<boolean>;
@@ -106,7 +110,8 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         !ctx.currentSplineRef.current &&
         !ctx.isDimensioningRef.current &&
         !ctx.isTransformingRef.current &&
-        !ctx.isPastingRef.current
+        !ctx.isPastingRef.current &&
+        !ctx.isMirroringRef.current
       ) {
         ctx.history.checkpoint();
       }
@@ -308,4 +313,19 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   pastePaperTool.onMouseDown = pasteTool.onMouseDown;
   pastePaperTool.onMouseMove = pasteTool.onMouseMove;
   pastePaperTool.onMouseDrag = pasteTool.onMouseDrag;
+
+  const mirrorTool = createMirrorTool({
+    isPanningRef: ctx.isPanningRef,
+    isSpacebarPanRef: ctx.isSpacebarPanRef,
+    isMirroringRef: ctx.isMirroringRef,
+    handleDragPan,
+    getSnapConfig: () => snapConfig,
+    history: ctx.history,
+    onHint: ctx.onHint,
+  });
+  ctx.mirrorToolInstanceRef.current = mirrorTool;
+  const mirrorPaperTool = ensureTool(ctx.mirrorToolRef);
+  mirrorPaperTool.onMouseDown = withCheckpoint(mirrorTool.onMouseDown);
+  mirrorPaperTool.onMouseMove = mirrorTool.onMouseMove;
+  mirrorPaperTool.onMouseDrag = mirrorTool.onMouseDrag;
 }

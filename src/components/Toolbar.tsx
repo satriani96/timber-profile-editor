@@ -121,6 +121,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <path d="M20 4v5h-5" />
         </Icon>
       </ToolButton>
+      <ToolButton
+        label="Mirror — click a straight line, or two snapped points, to copy the selection across that axis. Alt at the commit click moves instead of copying."
+        shortcut="I"
+        {...tool('mirror')}
+      >
+        <Icon>
+          <path d="M12 3v18" />
+          <path d="M10 8L5 12l5 4" />
+          <path d="M14 8l5 4-5 4" />
+        </Icon>
+      </ToolButton>
       <ToolButton label="Line" shortcut="L" {...tool('line')}>
         <Icon>
           <path d="M5 19L19 5" />

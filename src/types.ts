@@ -10,4 +10,5 @@ export type SketchTool =
   | 'split'
   | 'dimension'
   | 'move'
-  | 'rotate';
+  | 'rotate'
+  | 'mirror';

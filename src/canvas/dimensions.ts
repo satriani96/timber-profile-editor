@@ -1,5 +1,6 @@
 import paper from 'paper';
 import { DIMENSIONS_LAYER, ensureLayer, layerColor } from './layers';
+import { reflectPoint } from './geometry/itemData';
 import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
 
 export type DimensionKind = 'aligned' | 'horizontal' | 'vertical' | 'diameter' | 'radius' | 'distance';
@@ -300,6 +301,22 @@ export function rotateDimension(group: paper.Group, angleDeg: number, center: pa
   data.p2 = turn(data.p2);
   data.textPoint = turn(data.textPoint);
   if (data.kind === 'horizontal' || data.kind === 'vertical') data.kind = 'aligned';
+  group.data = { ...group.data, ...data };
+  rebuildDimension(group);
+}
+
+export function mirrorDimension(group: paper.Group, axisPoint: paper.Point, axisDirection: paper.Point): void {
+  const data = readDimensionData(group);
+  data.p1 = reflectPoint(data.p1, axisPoint, axisDirection);
+  data.p2 = reflectPoint(data.p2, axisPoint, axisDirection);
+  data.textPoint = reflectPoint(data.textPoint, axisPoint, axisDirection);
+  if (data.kind === 'horizontal' || data.kind === 'vertical') {
+    const dx = Math.abs(data.p2.x - data.p1.x);
+    const dy = Math.abs(data.p2.y - data.p1.y);
+    if (dy < 1e-6) data.kind = 'horizontal';
+    else if (dx < 1e-6) data.kind = 'vertical';
+    else data.kind = 'aligned';
+  }
   group.data = { ...group.data, ...data };
   rebuildDimension(group);
 }

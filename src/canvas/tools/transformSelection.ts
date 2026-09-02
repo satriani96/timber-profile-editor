@@ -1,6 +1,6 @@
 import paper from 'paper';
-import { isDimensionGroup, rotateDimension, translateDimension } from '../dimensions';
-import { movePath, rotatePath } from '../geometry/itemData';
+import { isDimensionGroup, mirrorDimension, rotateDimension, translateDimension } from '../dimensions';
+import { mirrorPath, movePath, rotatePath } from '../geometry/itemData';
 import { isSelectableItem } from './marquee';
 
 export function collectSelectedTransformItems(): paper.Item[] {
@@ -22,6 +22,35 @@ export function applyRotateSelection(items: paper.Item[], angleDeg: number, cent
     else if (item instanceof paper.Path) rotatePath(item, angleDeg, center);
     else item.rotate(angleDeg, center);
   }
+}
+
+export function applyMirrorSelection(items: paper.Item[], axisPoint: paper.Point, axisDirection: paper.Point): void {
+  for (const item of items) {
+    if (isDimensionGroup(item)) mirrorDimension(item, axisPoint, axisDirection);
+    else if (item instanceof paper.Path) mirrorPath(item, axisPoint, axisDirection);
+  }
+}
+
+export function mirrorCopyItems(items: paper.Item[], axisPoint: paper.Point, axisDirection: paper.Point): paper.Item[] {
+  const copies = items.map((item) => {
+    const clone = item.clone();
+    clone.data = { ...(item.data as Record<string, unknown>) };
+    delete clone.data.isTemporary;
+    delete clone.data.uid;
+    clone.selected = false;
+    clone.locked = false;
+    clone.opacity = 1;
+    clone.visible = true;
+    return clone;
+  });
+  applyMirrorSelection(copies, axisPoint, axisDirection);
+  return copies;
+}
+
+export function itemsBoundsCenter(items: paper.Item[]): paper.Point {
+  let bounds = items[0].bounds.clone();
+  for (const item of items.slice(1)) bounds = bounds.unite(item.bounds);
+  return bounds.center;
 }
 
 export function clonePreview(items: paper.Item[]): paper.Item[] {

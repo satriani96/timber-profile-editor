@@ -20,8 +20,9 @@ export function collectPaperTools(
   dimension: MutableRefObject<paper.Tool | null>,
   move: MutableRefObject<paper.Tool | null>,
   rotate: MutableRefObject<paper.Tool | null>,
+  mirror: MutableRefObject<paper.Tool | null>,
 ): PaperToolRefs {
-  return { select, line, square, circle, pan, fillet, fitspline, trim, split, dimension, move, rotate };
+  return { select, line, square, circle, pan, fillet, fitspline, trim, split, dimension, move, rotate, mirror };
 }
 
 interface Args {

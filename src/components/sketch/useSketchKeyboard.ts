@@ -31,6 +31,8 @@ interface Args {
   beginPaste: () => void;
   copySelection: () => void;
   cutSelection: () => void;
+  cancelMirror: () => void;
+  isMirroring: () => boolean;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -45,6 +47,7 @@ const TOOL_SHORTCUTS: Record<string, SketchTool> = {
   d: 'dimension',
   m: 'move',
   q: 'rotate',
+  i: 'mirror',
 };
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -77,6 +80,8 @@ export function useSketchKeyboard({
   beginPaste,
   copySelection,
   cutSelection,
+  cancelMirror,
+  isMirroring,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -122,7 +127,10 @@ export function useSketchKeyboard({
         case 'Delete':
         case 'Backspace': {
           const canDelete =
-            activeTool === 'select' || ((activeTool === 'move' || activeTool === 'rotate') && !isTransforming());
+            activeTool === 'select' ||
+            ((activeTool === 'move' || activeTool === 'rotate' || activeTool === 'mirror') &&
+              !isTransforming() &&
+              !isMirroring());
           if (!canDelete) return;
           event.preventDefault();
           const doomed = paper.project.selectedItems.filter(
@@ -140,6 +148,10 @@ export function useSketchKeyboard({
           }
           if (isPasting()) {
             cancelPaste();
+            return;
+          }
+          if (isMirroring()) {
+            cancelMirror();
             return;
           }
           if (isTransforming()) {
@@ -229,5 +241,7 @@ export function useSketchKeyboard({
     beginPaste,
     copySelection,
     cutSelection,
+    cancelMirror,
+    isMirroring,
   ]);
 }

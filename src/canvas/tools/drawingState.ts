@@ -26,6 +26,13 @@ export function isShiftHeld(event: paper.ToolEvent): boolean {
   return Boolean((event.modifiers as { shift?: boolean } | undefined)?.shift);
 }
 
+export function isAltHeld(event: paper.ToolEvent): boolean {
+  const mods = event.modifiers as { alt?: boolean } | undefined;
+  if (mods?.alt) return true;
+  const native = (event as unknown as { event?: MouseEvent }).event;
+  return Boolean(native?.altKey);
+}
+
 export function sketchStrokeWidth(): number {
   return BASE_STROKE_WIDTH / paper.view.zoom;
 }
