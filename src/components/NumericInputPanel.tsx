@@ -53,7 +53,7 @@ const NumericInputPanel: React.FC<NumericInputPanelProps> = ({
       style={{ left: position.x, top: position.y }}
     >
       {/* Line tool inputs */}
-      {activeTool === 'line' && (
+      {(activeTool === 'line' || activeTool === 'move') && (
         <>
           <div className="flex items-center gap-2">
             <label htmlFor="length-input" className="font-mono text-sm">L:</label>
@@ -135,6 +135,21 @@ const NumericInputPanel: React.FC<NumericInputPanelProps> = ({
               />
             </div>
           )}
+        </div>
+      )}
+
+      {activeTool === 'rotate' && (
+        <div className="flex items-center gap-2">
+          <label htmlFor="angle-input" className="font-mono text-sm">A (° CCW):</label>
+          <input
+            id="angle-input"
+            ref={refs.angle}
+            type="text"
+            value={values.angle}
+            onChange={(e) => setValues.angle(e.target.value)}
+            onKeyDown={onKeyDown}
+            className={`w-24 border px-1 rounded-sm ${activeInput === 'angle' ? 'border-blue-500' : 'border-gray-300'}`}
+          />
         </div>
       )}
 

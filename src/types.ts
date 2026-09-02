@@ -8,4 +8,6 @@ export type SketchTool =
   | 'fitspline'
   | 'trim'
   | 'split'
-  | 'dimension';
+  | 'dimension'
+  | 'move'
+  | 'rotate';

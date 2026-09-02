@@ -8,6 +8,8 @@ import { createFilletTool } from '../../canvas/tools/FilletTool';
 import { createFitSplineTool } from '../../canvas/tools/FitSplineTool';
 import { createSplitTool, createTrimTool } from '../../canvas/tools/CutTool';
 import { createDimensionTool } from '../../canvas/tools/DimensionTool';
+import { createMoveTool } from '../../canvas/tools/MoveTool';
+import { createRotateTool } from '../../canvas/tools/RotateTool';
 import { adoptGeometry, isPrimaryButton, type DrawingState } from '../../canvas/tools/drawingState';
 import { movePath, preserveMeta } from '../../canvas/geometry/itemData';
 import { getSnapPoint } from '../../utils/snapHelpers';
@@ -37,6 +39,12 @@ export interface SketchPaperToolsContext {
   dimensionToolRef: MutableRefObject<paper.Tool | null>;
   dimensionToolInstanceRef: MutableRefObject<ReturnType<typeof createDimensionTool> | null>;
   isDimensioningRef: MutableRefObject<boolean>;
+  moveToolRef: MutableRefObject<paper.Tool | null>;
+  moveToolInstanceRef: MutableRefObject<ReturnType<typeof createMoveTool> | null>;
+  rotateToolRef: MutableRefObject<paper.Tool | null>;
+  rotateToolInstanceRef: MutableRefObject<ReturnType<typeof createRotateTool> | null>;
+  isTransformingRef: MutableRefObject<boolean>;
+  onHint: (message: string | null) => void;
   currentSplineRef: MutableRefObject<paper.Path | null>;
   isDrawingSplineRef: MutableRefObject<boolean>;
   selectedSplinePointRef: MutableRefObject<{ path: paper.Path; index: number } | null>;
@@ -91,7 +99,8 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         !ctx.isSpacebarPanRef.current &&
         !ctx.isDrawingLineRef.current &&
         !ctx.currentSplineRef.current &&
-        !ctx.isDimensioningRef.current
+        !ctx.isDimensioningRef.current &&
+        !ctx.isTransformingRef.current
       ) {
         ctx.history.checkpoint();
       }
@@ -254,4 +263,27 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   dimensionPaperTool.onMouseDown = withCheckpoint(dimensionTool.onMouseDown);
   dimensionPaperTool.onMouseMove = dimensionTool.onMouseMove;
   dimensionPaperTool.onMouseDrag = dimensionTool.onMouseDrag;
+
+  const transformState = {
+    isPanningRef: ctx.isPanningRef,
+    isSpacebarPanRef: ctx.isSpacebarPanRef,
+    isTransformingRef: ctx.isTransformingRef,
+    handleDragPan,
+    getSnapConfig: () => snapConfig,
+    onHint: ctx.onHint,
+  };
+
+  const moveTool = createMoveTool(transformState);
+  ctx.moveToolInstanceRef.current = moveTool;
+  const movePaperTool = ensureTool(ctx.moveToolRef);
+  movePaperTool.onMouseDown = withCheckpoint(moveTool.onMouseDown);
+  movePaperTool.onMouseMove = moveTool.onMouseMove;
+  movePaperTool.onMouseDrag = moveTool.onMouseDrag;
+
+  const rotateTool = createRotateTool(transformState);
+  ctx.rotateToolInstanceRef.current = rotateTool;
+  const rotatePaperTool = ensureTool(ctx.rotateToolRef);
+  rotatePaperTool.onMouseDown = withCheckpoint(rotateTool.onMouseDown);
+  rotatePaperTool.onMouseMove = rotateTool.onMouseMove;
+  rotatePaperTool.onMouseDrag = rotateTool.onMouseDrag;
 }

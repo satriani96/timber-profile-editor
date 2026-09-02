@@ -1,6 +1,6 @@
 import paper from 'paper';
 import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
-import { ancestorDimension, offsetDimension } from '../dimensions';
+import { ancestorDimension, offsetDimension, translateDimension } from '../dimensions';
 import { movePath } from '../geometry/itemData';
 import { isPrimaryButton, isShiftHeld } from './drawingState';
 import { applyMarqueeSelection, createMarqueePreview, isClickNotDrag, marqueeMode } from './marquee';
@@ -142,7 +142,12 @@ export function createSelectTool(stateManager: StateManager) {
           path.selected = true;
         }
         if (path.data?.isSpline && path.selected) path.fullySelected = true;
-        movingPaths = path.selected ? selectedSketchPaths() : [];
+        if (path.selected) {
+          movingPaths = selectedSketchPaths();
+          movingDimensions = paper.project.selectedItems.filter(
+            (item): item is paper.Group => item instanceof paper.Group && Boolean(item.data?.isDimension)
+          );
+        }
         return;
       }
 
@@ -175,12 +180,13 @@ export function createSelectTool(stateManager: StateManager) {
         handleVertexDrag(event);
         return;
       }
-      if (movingDimensions.length) {
-        for (const group of movingDimensions) offsetDimension(group, event.delta);
-        return;
-      }
       if (movingPaths.length) {
         for (const path of movingPaths) movePath(path, event.delta);
+        for (const group of movingDimensions) translateDimension(group, event.delta);
+        return;
+      }
+      if (movingDimensions.length) {
+        for (const group of movingDimensions) offsetDimension(group, event.delta);
       }
     },
 

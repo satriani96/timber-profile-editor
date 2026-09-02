@@ -1,5 +1,6 @@
 import paper from 'paper';
-import { isSketchPath } from '../geometry/pathCuts';
+import { ancestorDimension } from '../dimensions';
+import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
 import { BASE_STROKE_WIDTH } from '../../components/sketch/constants';
 
 export type MarqueeMode = 'window' | 'crossing';
@@ -20,6 +21,17 @@ export function isSelectableItem(item: paper.Item): boolean {
   if (item.data?.isTemporary || item.data?.isMeasurement) return false;
   if (item instanceof paper.Group && item.data?.isDimension) return true;
   return isSketchPath(item);
+}
+
+/** Hit a sketch path or dimension group under `point`, or null. */
+export function hitSelectable(point: paper.Point, zoom = paper.view.zoom): paper.Item | null {
+  const tolerance = 8 / zoom;
+  const dimHit = paper.project.hitTest(point, { fill: true, stroke: true, bounds: true, tolerance });
+  const dimension = dimHit ? ancestorDimension(dimHit.item) : null;
+  if (dimension && isSelectableItem(dimension)) return dimension;
+  const stroke = nearestSketchPath(point, tolerance);
+  if (stroke && isSelectableItem(stroke.path)) return stroke.path;
+  return null;
 }
 
 export function collectSelectable(project: paper.Project = paper.project): paper.Item[] {

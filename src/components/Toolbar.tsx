@@ -97,6 +97,30 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <path d="M4 4l7.5 16 2.5-6.5L20.5 11z" />
         </Icon>
       </ToolButton>
+      <ToolButton
+        label="Move — click a snapped base point, then the destination. Shift constrains to 45°. Tab enters distance/angle."
+        shortcut="M"
+        {...tool('move')}
+      >
+        <Icon>
+          <path d="M12 3v18" />
+          <path d="M3 12h18" />
+          <path d="M8 7l4-4 4 4" />
+          <path d="M8 17l4 4 4-4" />
+          <path d="M7 8l-4 4 4 4" />
+          <path d="M17 8l4 4-4 4" />
+        </Icon>
+      </ToolButton>
+      <ToolButton
+        label="Rotate — click centre, then a reference point, then the new angle. Shift snaps 15°. Tab enters CCW degrees."
+        shortcut="Q"
+        {...tool('rotate')}
+      >
+        <Icon>
+          <path d="M20 12a8 8 0 11-3.2-6.4" />
+          <path d="M20 4v5h-5" />
+        </Icon>
+      </ToolButton>
       <ToolButton label="Line" shortcut="L" {...tool('line')}>
         <Icon>
           <path d="M5 19L19 5" />

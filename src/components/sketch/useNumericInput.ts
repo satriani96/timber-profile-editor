@@ -4,6 +4,8 @@ import type { SketchTool } from '../../types';
 import type { DrawingSession } from './useDrawingSession';
 import type { createFilletTool } from '../../canvas/tools/FilletTool';
 import type { createLineTool } from '../../canvas/tools/LineTool';
+import type { createMoveTool } from '../../canvas/tools/MoveTool';
+import type { createRotateTool } from '../../canvas/tools/RotateTool';
 import { preserveMeta } from '../../canvas/geometry/itemData';
 import { adoptGeometry } from '../../canvas/tools/drawingState';
 
@@ -15,6 +17,8 @@ interface Args {
   cornerPointRef: MutableRefObject<paper.Point | null>;
   filletToolInstanceRef: MutableRefObject<ReturnType<typeof createFilletTool> | null>;
   lineToolInstanceRef: MutableRefObject<ReturnType<typeof createLineTool> | null>;
+  moveToolInstanceRef: MutableRefObject<ReturnType<typeof createMoveTool> | null>;
+  rotateToolInstanceRef: MutableRefObject<ReturnType<typeof createRotateTool> | null>;
 }
 
 const EMPTY_VALUES: Record<NumericField, string> = {
@@ -27,7 +31,15 @@ const EMPTY_VALUES: Record<NumericField, string> = {
 };
 
 /** Keyboard-driven size entry while drawing (Tab to open, Enter to apply, Escape to cancel). */
-export function useNumericInput({ activeTool, session, cornerPointRef, filletToolInstanceRef, lineToolInstanceRef }: Args) {
+export function useNumericInput({
+  activeTool,
+  session,
+  cornerPointRef,
+  filletToolInstanceRef,
+  lineToolInstanceRef,
+  moveToolInstanceRef,
+  rotateToolInstanceRef,
+}: Args) {
   const [isActive, setIsActive] = useState(false);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [activeInput, setActiveInput] = useState<NumericField>('length');
@@ -66,10 +78,15 @@ export function useNumericInput({ activeTool, session, cornerPointRef, filletToo
     else if (activeTool === 'square' && path) target = { field: 'width', anchor: path.bounds.topRight };
     else if (activeTool === 'circle' && path) target = { field: 'diameter', anchor: path.bounds.rightCenter };
     else if (activeTool === 'fillet' && cornerPointRef.current) target = { field: 'radius', anchor: cornerPointRef.current };
+    else if (activeTool === 'move' && moveToolInstanceRef.current?.isBusy()) {
+      target = { field: 'length', anchor: moveToolInstanceRef.current.anchor() ?? paper.view.center };
+    } else if (activeTool === 'rotate' && rotateToolInstanceRef.current?.canApplyNumeric()) {
+      target = { field: 'angle', anchor: rotateToolInstanceRef.current.anchor() ?? paper.view.center };
+    }
     if (!target) return false;
     openAt(target.field, target.anchor);
     return true;
-  }, [activeTool, cornerPointRef, openAt, session.currentPathRef]);
+  }, [activeTool, cornerPointRef, moveToolInstanceRef, openAt, rotateToolInstanceRef, session.currentPathRef]);
 
   const applyLine = useCallback(() => {
     const path = session.currentPathRef.current;
@@ -113,6 +130,21 @@ export function useNumericInput({ activeTool, session, cornerPointRef, filletToo
     if (!isNaN(radius) && radius > 0) filletToolInstanceRef.current?.applyFillet(radius);
   }, [filletToolInstanceRef, values.radius]);
 
+  const applyMove = useCallback(() => {
+    const length = parseFloat(values.length);
+    const angle = parseFloat(values.angle);
+    if (isNaN(length) || length <= 0) return;
+    moveToolInstanceRef.current?.applyNumeric(length, isNaN(angle) ? undefined : angle);
+    reset();
+  }, [moveToolInstanceRef, reset, values.angle, values.length]);
+
+  const applyRotate = useCallback(() => {
+    const angle = parseFloat(values.angle);
+    if (isNaN(angle)) return;
+    rotateToolInstanceRef.current?.applyNumeric(angle);
+    reset();
+  }, [reset, rotateToolInstanceRef, values.angle]);
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === 'Enter') {
@@ -121,17 +153,24 @@ export function useNumericInput({ activeTool, session, cornerPointRef, filletToo
         else if (activeTool === 'square') applyRectangle();
         else if (activeTool === 'circle') applyCircle();
         else if (activeTool === 'fillet') applyFillet();
+        else if (activeTool === 'move') applyMove();
+        else if (activeTool === 'rotate') applyRotate();
       } else if (event.key === 'Escape') {
         event.preventDefault();
-        session.cancelDrawing();
+        if (activeTool === 'move' || activeTool === 'rotate') {
+          moveToolInstanceRef.current?.cancel();
+          rotateToolInstanceRef.current?.cancel();
+        } else {
+          session.cancelDrawing();
+        }
         reset();
       } else if (event.key === 'Tab') {
         event.preventDefault();
-        if (activeTool === 'line') setActiveInput((prev) => (prev === 'length' ? 'angle' : 'length'));
+        if (activeTool === 'line' || activeTool === 'move') setActiveInput((prev) => (prev === 'length' ? 'angle' : 'length'));
         else if (activeTool === 'square') setActiveInput((prev) => (prev === 'width' ? 'height' : 'width'));
       }
     },
-    [activeTool, applyCircle, applyFillet, applyLine, applyRectangle, reset, session]
+    [activeTool, applyCircle, applyFillet, applyLine, applyMove, applyRectangle, applyRotate, moveToolInstanceRef, reset, rotateToolInstanceRef, session]
   );
 
   useEffect(() => {

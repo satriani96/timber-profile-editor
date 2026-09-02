@@ -63,10 +63,14 @@ export function measureDimension(kind: DimensionKind, p1: paper.Point, p2: paper
   }
 }
 
+export function isDimensionGroup(item: paper.Item): item is paper.Group {
+  return item instanceof paper.Group && Boolean(item.data?.isDimension);
+}
+
 export function ancestorDimension(item: paper.Item | null): paper.Group | null {
   let current: paper.Item | null = item;
   while (current) {
-    if (current instanceof paper.Group && current.data?.isDimension) return current;
+    if (isDimensionGroup(current)) return current;
     current = current.parent;
   }
   return null;
@@ -277,6 +281,26 @@ export function offsetDimension(group: paper.Group, delta: paper.Point): void {
   const data = readDimensionData(group);
   data.textPoint = data.textPoint.add(delta);
   group.data = { ...group.data, textPoint: data.textPoint };
+  rebuildDimension(group);
+}
+
+export function translateDimension(group: paper.Group, delta: paper.Point): void {
+  const data = readDimensionData(group);
+  data.p1 = data.p1.add(delta);
+  data.p2 = data.p2.add(delta);
+  data.textPoint = data.textPoint.add(delta);
+  group.data = { ...group.data, p1: data.p1, p2: data.p2, textPoint: data.textPoint };
+  rebuildDimension(group);
+}
+
+export function rotateDimension(group: paper.Group, angleDeg: number, center: paper.Point): void {
+  const data = readDimensionData(group);
+  const turn = (p: paper.Point) => p.rotate(angleDeg, center);
+  data.p1 = turn(data.p1);
+  data.p2 = turn(data.p2);
+  data.textPoint = turn(data.textPoint);
+  if (data.kind === 'horizontal' || data.kind === 'vertical') data.kind = 'aligned';
+  group.data = { ...group.data, ...data };
   rebuildDimension(group);
 }
 

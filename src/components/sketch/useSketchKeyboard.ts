@@ -24,6 +24,8 @@ interface Args {
   isDimensioningRef: MutableRefObject<boolean>;
   cancelMarquee: () => void;
   isMarqueeing: () => boolean;
+  cancelTransform: () => void;
+  isTransforming: () => boolean;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -36,6 +38,8 @@ const TOOL_SHORTCUTS: Record<string, SketchTool> = {
   t: 'trim',
   x: 'split',
   d: 'dimension',
+  m: 'move',
+  q: 'rotate',
 };
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -61,6 +65,8 @@ export function useSketchKeyboard({
   isDimensioningRef,
   cancelMarquee,
   isMarqueeing,
+  cancelTransform,
+  isTransforming,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -90,7 +96,9 @@ export function useSketchKeyboard({
       switch (event.key) {
         case 'Delete':
         case 'Backspace': {
-          if (activeTool !== 'select') return;
+          const canDelete =
+            activeTool === 'select' || ((activeTool === 'move' || activeTool === 'rotate') && !isTransforming());
+          if (!canDelete) return;
           event.preventDefault();
           const doomed = paper.project.selectedItems.filter(
             (item) => isSketchPath(item) || item.data?.isMeasurement || item.data?.isDimension
@@ -103,6 +111,10 @@ export function useSketchKeyboard({
         case 'Escape':
           if (isMarqueeing()) {
             cancelMarquee();
+            return;
+          }
+          if (isTransforming()) {
+            cancelTransform();
             return;
           }
           if (isDimensioningRef.current) {
@@ -123,7 +135,11 @@ export function useSketchKeyboard({
           }
           return;
         case 'Tab':
-          if (session.isDrawingLineRef.current || (activeTool === 'fillet' && cornerPointRef.current)) {
+          if (
+            session.isDrawingLineRef.current ||
+            (activeTool === 'fillet' && cornerPointRef.current) ||
+            ((activeTool === 'move' || activeTool === 'rotate') && isTransforming())
+          ) {
             event.preventDefault();
             numeric.openForCurrentTool();
           }
@@ -177,5 +193,7 @@ export function useSketchKeyboard({
     isDimensioningRef,
     cancelMarquee,
     isMarqueeing,
+    cancelTransform,
+    isTransforming,
   ]);
 }
