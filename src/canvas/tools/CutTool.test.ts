@@ -107,13 +107,17 @@ describe('snap markers', () => {
     expect(snapIndicatorRef.current?.data.snapKind).toBe('endpoint');
     expect(snapIndicatorRef.current?.isInserted()).toBe(true);
 
-    expect(findSnap(new paper.Point(402, 303), config)?.kind).toBe('center');
+    // The line's midpoint coincides with the circle center; midpoint outranks center.
+    expect(findSnap(new paper.Point(402, 303), config)?.kind).toBe('midpoint');
+    const lone = new paper.Path.Circle({ center: [100, 100], radius: 30, strokeColor: 'black', strokeWidth: 2 });
+    lone.data = { center: new paper.Point(100, 100), radius: 30, isArc: false };
+    expect(findSnap(new paper.Point(102, 103), config)?.kind).toBe('center');
     expect(findSnap(new paper.Point(402, 203), config)?.kind).toBe('quadrant');
     expect(findSnap(new paper.Point(302, 297), config)?.kind).toBe('intersection');
     expect(snapIndicatorRef.current?.data.snapKind).toBe('intersection');
 
     l.remove();
-    expect(findSnap(new paper.Point(300, 300), config)).toBeNull();
+    expect(findSnap(new paper.Point(700, 500), config)).toBeNull();
     expect(snapIndicatorRef.current?.visible).toBe(false);
   });
 });
