@@ -7,7 +7,6 @@ import { createFitSplineTool } from '../canvas/tools/FitSplineTool';
 import { createLineTool } from '../canvas/tools/LineTool';
 import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
 import { createDimensionTool } from '../canvas/tools/DimensionTool';
-import { ancestorDimension } from '../canvas/dimensions';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
@@ -21,9 +20,7 @@ import { useViewport } from './sketch/useViewport';
 import { useNumericInput } from './sketch/useNumericInput';
 import { useSketchKeyboard } from './sketch/useSketchKeyboard';
 import { attachSketchPaperTools } from './sketch/attachSketchPaperTools';
-import { useDimensionEntry } from './sketch/useDimensionEntry';
 import NumericInputPanel from './NumericInputPanel';
-import DimensionInput from './DimensionInput';
 import FloatingFinishButton from './FloatingFinishButton';
 import { ImageUpload } from '../canvas/ImageUpload';
 import ImageSideToolbar from './ImageSideToolbar';
@@ -200,23 +197,14 @@ function SketchCanvas(
     hideSnapIndicator();
   }, [hideSnapIndicator]);
 
-  const onDimensionDriven = useCallback(() => {
-    updateAllStrokeWidths();
-    paper.view.update();
-  }, [updateAllStrokeWidths]);
-  const dimEntry = useDimensionEntry({ history, afterChange: onDimensionDriven });
-  const closeDimEntry = dimEntry.close;
-  const openDimEntry = dimEntry.openFor;
-
   const afterHistoryChange = useCallback(() => {
     clearTransientVisuals();
     resetNumericInput();
-    closeDimEntry();
     cancelDimension();
     finishCurrentFilletOperation();
     updateAllStrokeWidths();
     paper.view.update();
-  }, [cancelDimension, clearTransientVisuals, closeDimEntry, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
+  }, [cancelDimension, clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
 
   const runHistory = useCallback(
     (action: 'undo' | 'redo') => {
@@ -243,10 +231,6 @@ function SketchCanvas(
     zoomToFit,
     cancelDimension,
     isDimensioningRef,
-    onEditSelectedDimension: () => {
-      const dim = paper.project.selectedItems.find((item) => item.data?.isDimension);
-      if (dim instanceof paper.Group) openDimEntry(dim);
-    },
   });
 
   // --- DXF import/export ---
@@ -353,7 +337,6 @@ function SketchCanvas(
       dimensionToolRef,
       dimensionToolInstanceRef,
       isDimensioningRef,
-      onDimensionPlaced: (group) => openDimEntry(group),
     });
     // Refs and setters are stable; re-wiring only when Paper becomes ready.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional single wire-up
@@ -415,17 +398,6 @@ function SketchCanvas(
     };
     const onContextMenu = (e: Event) => e.preventDefault();
     const onDblClick = (e: MouseEvent) => {
-      if (activeTool === 'select') {
-        const point = paper.view.viewToProject(new paper.Point(e.offsetX, e.offsetY));
-        const hit = paper.project.hitTest(point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
-        const dim = hit ? ancestorDimension(hit.item) : null;
-        if (dim) {
-          e.preventDefault();
-          dim.selected = true;
-          openDimEntry(dim);
-          return;
-        }
-      }
       if (activeTool !== 'fitspline' || !isDrawingSplineRef.current) return;
       e.preventDefault();
       fitSplineToolInstanceRef.current?.finishSpline();
@@ -449,7 +421,7 @@ function SketchCanvas(
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('dblclick', onDblClick);
     };
-  }, [activeTool, handleWheel, clearTransientVisuals, openDimEntry]);
+  }, [activeTool, handleWheel, clearTransientVisuals]);
 
   return (
     <div className="w-full h-full relative">
@@ -469,7 +441,6 @@ function SketchCanvas(
         onClick={() => fitSplineToolInstanceRef.current?.finishSpline()}
       />
       <NumericInputPanel {...numeric.panelProps} />
-      <DimensionInput {...dimEntry.inputProps} />
       {paperReady && <LayersPanel history={history} />}
       <ImageSideToolbar
         key={imageVersion}

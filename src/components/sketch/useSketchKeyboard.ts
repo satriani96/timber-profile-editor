@@ -22,7 +22,6 @@ interface Args {
   zoomToFit: () => void;
   cancelDimension: () => void;
   isDimensioningRef: MutableRefObject<boolean>;
-  onEditSelectedDimension: () => void;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -41,7 +40,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
-/** Global keyboard handling: shortcuts, undo/redo, Escape/Delete, Space-to-pan, Tab for dimensions. */
+/** Global keyboard handling: shortcuts, undo/redo, Escape/Delete, Space-to-pan, Tab for length/size while drawing. */
 export function useSketchKeyboard({
   activeTool,
   setActiveTool,
@@ -58,7 +57,6 @@ export function useSketchKeyboard({
   zoomToFit,
   cancelDimension,
   isDimensioningRef,
-  onEditSelectedDimension,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -98,12 +96,6 @@ export function useSketchKeyboard({
           doomed.forEach((item) => item.remove());
           return;
         }
-        case 'Enter':
-          if (activeTool === 'select') {
-            event.preventDefault();
-            onEditSelectedDimension();
-          }
-          return;
         case 'Escape':
           if (isDimensioningRef.current) {
             cancelDimension();
@@ -175,6 +167,5 @@ export function useSketchKeyboard({
     zoomToFit,
     cancelDimension,
     isDimensioningRef,
-    onEditSelectedDimension,
   ]);
 }

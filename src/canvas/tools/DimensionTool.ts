@@ -4,12 +4,10 @@ import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
 import {
   classifyLinearKind,
   createDimension,
-  ensureItemUid,
   measureDimension,
   rebuildDimension,
   type DimensionData,
   type DimensionKind,
-  type LinkedRole,
 } from '../dimensions';
 import { findSnap, type SnapConfig } from '../../utils/snapHelpers';
 import { isPrimaryButton } from './drawingState';
@@ -20,25 +18,13 @@ export interface DimensionToolState {
   isDimensioningRef: MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
-  onPlaced: (group: paper.Group) => void;
-}
-
-interface PointPick {
-  point: paper.Point;
-  uid?: string;
-  role?: LinkedRole;
 }
 
 interface PendingLinear {
   mode: 'linear';
   p1: paper.Point;
   p2: paper.Point;
-  uid?: string;
-  role?: LinkedRole;
-  click: paper.Point;
   forceKind?: DimensionKind;
-  p2Uid?: string;
-  p2Role?: LinkedRole;
 }
 
 interface PendingRadial {
@@ -46,37 +32,17 @@ interface PendingRadial {
   kind: 'diameter' | 'radius';
   center: paper.Point;
   onCurve: paper.Point;
-  uid: string;
 }
 
 interface PendingDistance {
   mode: 'distance';
-  first: PointPick;
+  first: paper.Point;
 }
 
 type Pending = PendingLinear | PendingRadial | PendingDistance;
 
-const HIT_PX = 8;
-
-function roleForSnap(path: paper.Path, kind: string, point: paper.Point): LinkedRole {
-  if (kind === 'center') return 'center';
-  if (kind === 'midpoint') return 'body';
-  if (path.firstSegment && point.isClose(path.firstSegment.point, 1e-4)) return 'first';
-  if (path.lastSegment && point.isClose(path.lastSegment.point, 1e-4)) return 'last';
-  return 'body';
-}
-
-function pickPoint(point: paper.Point, snapConfig: SnapConfig): PointPick | null {
-  const snap = findSnap(point, snapConfig);
-  if (!snap) return null;
-  const hit = nearestSketchPath(snap.point, 1e-3) ?? nearestSketchPath(point, HIT_PX / paper.view.zoom);
-  const path = hit?.path;
-  return {
-    point: snap.point.clone(),
-    uid: path ? ensureItemUid(path) : undefined,
-    role: path ? roleForSnap(path, snap.kind, snap.point) : undefined,
-  };
-}
+/** Same distance-based lookup as the cut tools; slightly looser so circles/arcs are easy to pick. */
+const HIT_PX = 10;
 
 function isCircle(path: paper.Path): boolean {
   return Boolean(path.closed && path.data?.center instanceof paper.Point && path.data?.isArc === false);
@@ -92,8 +58,13 @@ function straightEnds(location: paper.CurveLocation): { p1: paper.Point; p2: pap
   return { p1: curve.point1.clone(), p2: curve.point2.clone() };
 }
 
+function pickSnapPoint(point: paper.Point, snapConfig: SnapConfig): paper.Point | null {
+  const snap = findSnap(point, snapConfig);
+  return snap ? snap.point.clone() : null;
+}
+
 export function createDimensionTool(state: DimensionToolState) {
-  const { isPanningRef, isSpacebarPanRef, isDimensioningRef, handleDragPan, getSnapConfig, onPlaced } = state;
+  const { isPanningRef, isSpacebarPanRef, isDimensioningRef, handleDragPan, getSnapConfig } = state;
 
   let pending: Pending | null = null;
   let preview: paper.Group | null = null;
@@ -133,11 +104,6 @@ export function createDimensionTool(state: DimensionToolState) {
         p2: pending.p2.clone(),
         textPoint: place.clone(),
         value: measureDimension(kind, pending.p1, pending.p2),
-        linkedUid: pending.uid,
-        linkedRole: pending.role,
-        p2Uid: pending.p2Uid,
-        p2Role: pending.p2Role,
-        click: pending.click.clone(),
       });
       return;
     }
@@ -147,8 +113,6 @@ export function createDimensionTool(state: DimensionToolState) {
       p2: pending.onCurve.clone(),
       textPoint: place.clone(),
       value: measureDimension(pending.kind, pending.center, pending.onCurve),
-      linkedUid: pending.uid,
-      linkedRole: 'center',
     });
   }
 
@@ -157,33 +121,17 @@ export function createDimensionTool(state: DimensionToolState) {
     updatePreview(place);
     if (!preview) return;
     delete preview.data.isTemporary;
-    const group = preview;
     preview = null;
     pending = null;
     isDimensioningRef.current = false;
-    onPlaced(group);
   }
 
-  function startLinear(path: paper.Path, location: paper.CurveLocation, click: paper.Point) {
+  function startLinear(location: paper.CurveLocation) {
     const ends = straightEnds(location);
     if (!ends) return false;
-    const first = path.firstSegment.point;
-    const last = path.lastSegment.point;
-    const role: LinkedRole = ends.p1.isClose(first, 1e-4)
-      ? 'first'
-      : ends.p2.isClose(last, 1e-4)
-        ? 'last'
-        : 'body';
-    pending = {
-      mode: 'linear',
-      p1: ends.p1,
-      p2: ends.p2,
-      uid: ensureItemUid(path),
-      role,
-      click: click.clone(),
-    };
+    pending = { mode: 'linear', p1: ends.p1, p2: ends.p2 };
     isDimensioningRef.current = true;
-    updatePreview(click);
+    updatePreview(ends.p1.add(ends.p2).divide(2));
     return true;
   }
 
@@ -197,19 +145,9 @@ export function createDimensionTool(state: DimensionToolState) {
     const point = event.point;
 
     if (pending?.mode === 'distance') {
-      const second = pickPoint(point, snapConfig);
+      const second = pickSnapPoint(point, snapConfig);
       if (!second) return;
-      pending = {
-        mode: 'linear',
-        p1: pending.first.point,
-        p2: second.point,
-        uid: pending.first.uid,
-        role: pending.first.role,
-        click: pending.first.point,
-        forceKind: 'distance',
-        p2Uid: second.uid,
-        p2Role: second.role,
-      };
+      pending = { mode: 'linear', p1: pending.first, p2: second, forceKind: 'distance' };
       isDimensioningRef.current = true;
       updatePreview(point);
       return;
@@ -225,18 +163,12 @@ export function createDimensionTool(state: DimensionToolState) {
 
     if (hit && isCircle(hit.path)) {
       if (snap?.kind === 'center') {
-        pending = { mode: 'distance', first: { point: snap.point.clone(), uid: ensureItemUid(hit.path), role: 'center' } };
+        pending = { mode: 'distance', first: snap.point.clone() };
         isDimensioningRef.current = true;
         return;
       }
       const center = (hit.path.data.center as paper.Point).clone();
-      pending = {
-        mode: 'radial',
-        kind: 'diameter',
-        center,
-        onCurve: hit.location.point.clone(),
-        uid: ensureItemUid(hit.path),
-      };
+      pending = { mode: 'radial', kind: 'diameter', center, onCurve: hit.location.point.clone() };
       isDimensioningRef.current = true;
       updatePreview(point);
       return;
@@ -244,13 +176,7 @@ export function createDimensionTool(state: DimensionToolState) {
 
     if (hit && isArcPath(hit.path)) {
       const center = (hit.path.data.center as paper.Point).clone();
-      pending = {
-        mode: 'radial',
-        kind: 'radius',
-        center,
-        onCurve: hit.location.point.clone(),
-        uid: ensureItemUid(hit.path),
-      };
+      pending = { mode: 'radial', kind: 'radius', center, onCurve: hit.location.point.clone() };
       isDimensioningRef.current = true;
       updatePreview(point);
       return;
@@ -258,22 +184,16 @@ export function createDimensionTool(state: DimensionToolState) {
 
     const preferPoint = snap && (snap.kind === 'endpoint' || snap.kind === 'center');
     if (preferPoint) {
-      const first = pickPoint(point, snapConfig);
-      if (first) {
-        pending = { mode: 'distance', first };
-        isDimensioningRef.current = true;
-        return;
-      }
+      pending = { mode: 'distance', first: snap.point.clone() };
+      isDimensioningRef.current = true;
+      return;
     }
 
-    if (hit && isSketchPath(hit.path) && startLinear(hit.path, hit.location, point)) return;
+    if (hit && isSketchPath(hit.path) && startLinear(hit.location)) return;
 
     if (snap) {
-      const first = pickPoint(point, snapConfig);
-      if (first) {
-        pending = { mode: 'distance', first };
-        isDimensioningRef.current = true;
-      }
+      pending = { mode: 'distance', first: snap.point.clone() };
+      isDimensioningRef.current = true;
     }
   }
 

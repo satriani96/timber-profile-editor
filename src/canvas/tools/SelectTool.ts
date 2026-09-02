@@ -1,6 +1,6 @@
 import paper from 'paper';
 import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
-import { ancestorDimension } from '../dimensions';
+import { ancestorDimension, offsetDimension } from '../dimensions';
 import { movePath } from '../geometry/itemData';
 import { isPrimaryButton, isShiftHeld } from './drawingState';
 
@@ -28,6 +28,7 @@ export function createSelectTool(stateManager: StateManager) {
 
   let selectedHandle: SelectedHandle | null = null;
   let movingPaths: paper.Path[] = [];
+  let movingDimensions: paper.Group[] = [];
 
   const matchSketch = (h: paper.HitResult) => isSketchPath(h.item);
 
@@ -41,6 +42,7 @@ export function createSelectTool(stateManager: StateManager) {
       draggedSegmentRef.current = null;
       selectedHandle = null;
       movingPaths = [];
+      movingDimensions = [];
       const tolerance = 8 / paper.view.zoom;
       const additive = isShiftHeld(event);
 
@@ -56,6 +58,11 @@ export function createSelectTool(stateManager: StateManager) {
         else if (!dimension.selected) {
           paper.project.deselectAll();
           dimension.selected = true;
+        }
+        if (dimension.selected) {
+          movingDimensions = paper.project.selectedItems.filter(
+            (item): item is paper.Group => item instanceof paper.Group && Boolean(item.data?.isDimension)
+          );
         }
         return;
       }
@@ -123,6 +130,10 @@ export function createSelectTool(stateManager: StateManager) {
         handleVertexDrag(event);
         return;
       }
+      if (movingDimensions.length) {
+        for (const group of movingDimensions) offsetDimension(group, event.delta);
+        return;
+      }
       if (movingPaths.length) {
         for (const path of movingPaths) movePath(path, event.delta);
       }
@@ -132,6 +143,7 @@ export function createSelectTool(stateManager: StateManager) {
       draggedSegmentRef.current = null;
       selectedHandle = null;
       movingPaths = [];
+      movingDimensions = [];
     },
 
     onKeyDown: null,

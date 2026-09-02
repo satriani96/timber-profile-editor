@@ -1,13 +1,8 @@
 import paper from 'paper';
 import { DIMENSIONS_LAYER, ensureLayer, layerColor } from './layers';
-import { movePath, preserveMeta } from './geometry/itemData';
-import { arcDataFor } from './geometry/pathCuts';
-import { adoptGeometry } from './tools/drawingState';
 import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
 
 export type DimensionKind = 'aligned' | 'horizontal' | 'vertical' | 'diameter' | 'radius' | 'distance';
-
-export type LinkedRole = 'first' | 'last' | 'center' | 'body';
 
 export interface DimensionData {
   isDimension: true;
@@ -17,11 +12,6 @@ export interface DimensionData {
   p2: paper.Point;
   textPoint: paper.Point;
   value: number;
-  linkedUid?: string;
-  linkedRole?: LinkedRole;
-  p2Uid?: string;
-  p2Role?: LinkedRole;
-  click?: paper.Point;
 }
 
 export function formatDimensionValue(n: number): string {
@@ -73,83 +63,6 @@ export function measureDimension(kind: DimensionKind, p1: paper.Point, p2: paper
   }
 }
 
-export function fartherEnd(click: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }): 'start' | 'end' {
-  const ds = (click.x - start.x) ** 2 + (click.y - start.y) ** 2;
-  const de = (click.x - end.x) ** 2 + (click.y - end.y) ** 2;
-  return ds >= de ? 'start' : 'end';
-}
-
-function asPoint(p: { x: number; y: number }) {
-  return { x: p.x, y: p.y };
-}
-
-export function driveLineLength(
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  click: { x: number; y: number },
-  newLength: number
-): { start: { x: number; y: number }; end: { x: number; y: number } } {
-  const length = Math.max(newLength, 1e-6);
-  const anchor = fartherEnd(click, start, end);
-  const from = anchor === 'start' ? start : end;
-  const to = anchor === 'start' ? end : start;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const current = Math.hypot(dx, dy);
-  const ux = current > 1e-9 ? dx / current : 1;
-  const uy = current > 1e-9 ? dy / current : 0;
-  const moved = { x: from.x + ux * length, y: from.y + uy * length };
-  return anchor === 'start' ? { start: asPoint(from), end: moved } : { start: moved, end: asPoint(from) };
-}
-
-export function driveProjectedLength(
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  click: { x: number; y: number },
-  target: number,
-  axis: 'x' | 'y'
-): { start: { x: number; y: number }; end: { x: number; y: number } } {
-  const anchor = fartherEnd(click, start, end);
-  const from = anchor === 'start' ? start : end;
-  const to = anchor === 'start' ? end : start;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const current = Math.hypot(dx, dy);
-  if (current < 1e-9) return { start: asPoint(start), end: asPoint(end) };
-  const ux = dx / current;
-  const uy = dy / current;
-  const component = axis === 'x' ? ux : uy;
-  if (Math.abs(component) < 1e-9) return { start: asPoint(start), end: asPoint(end) };
-  const t = Math.max(target, 1e-6) / Math.abs(component);
-  const moved = { x: from.x + ux * t, y: from.y + uy * t };
-  return anchor === 'start' ? { start: asPoint(from), end: moved } : { start: moved, end: asPoint(from) };
-}
-
-export function driveDistance(
-  p1: { x: number; y: number },
-  p2: { x: number; y: number },
-  newDistance: number
-): { p1: { x: number; y: number }; p2: { x: number; y: number } } {
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  const current = Math.hypot(dx, dy);
-  const ux = current > 1e-9 ? dx / current : 1;
-  const uy = current > 1e-9 ? dy / current : 0;
-  const d = Math.max(newDistance, 1e-6);
-  return { p1: asPoint(p1), p2: { x: p1.x + ux * d, y: p1.y + uy * d } };
-}
-
-export function ensureItemUid(item: paper.Item): string {
-  if (typeof item.data.uid === 'string' && item.data.uid) return item.data.uid;
-  item.data.uid = `s${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-  return item.data.uid;
-}
-
-export function findItemByUid(uid: string | undefined): paper.Item | null {
-  if (!uid || !paper.project) return null;
-  return paper.project.getItems({ match: (item: paper.Item) => item.data?.uid === uid })[0] ?? null;
-}
-
 export function ancestorDimension(item: paper.Item | null): paper.Group | null {
   let current: paper.Item | null = item;
   while (current) {
@@ -175,7 +88,6 @@ export function readDimensionData(group: paper.Group): DimensionData {
     p1: toPoint(d.p1, new paper.Point(0, 0)),
     p2: toPoint(d.p2, new paper.Point(0, 0)),
     textPoint: toPoint(d.textPoint, new paper.Point(0, 0)),
-    click: d.click ? toPoint(d.click, new paper.Point(0, 0)) : undefined,
   };
 }
 
@@ -354,7 +266,6 @@ export function createDimension(data: Omit<DimensionData, 'isDimension' | 'layer
     p1: data.p1.clone(),
     p2: data.p2.clone(),
     textPoint: data.textPoint.clone(),
-    click: data.click?.clone(),
   };
   const group = new paper.Group({ insert: true });
   group.data = full;
@@ -362,105 +273,10 @@ export function createDimension(data: Omit<DimensionData, 'isDimension' | 'layer
   return group;
 }
 
-function applyRole(path: paper.Path, role: LinkedRole | undefined, from: paper.Point, to: paper.Point) {
-  if (role === 'center' || role === 'body') {
-    movePath(path, to.subtract(from));
-    return;
-  }
-  if (role === 'first' && path.firstSegment) path.firstSegment.point = to;
-  else if (role === 'last' && path.lastSegment) path.lastSegment.point = to;
-}
-
-function rebuildCircle(path: paper.Path, center: paper.Point, radius: number) {
-  adoptGeometry(path, new paper.Path.Circle({ center, radius: Math.max(radius, 1e-6), insert: false }));
-  path.data = preserveMeta(path, { center, radius, isArc: false });
-}
-
-function rebuildArc(path: paper.Path, center: paper.Point, radius: number) {
-  const startAngle = typeof path.data.startAngle === 'number' ? path.data.startAngle : 0;
-  const sweep = typeof path.data.sweepAngle === 'number' ? path.data.sweepAngle : 180;
-  const r = Math.max(radius, 1e-6);
-  const pt = (deg: number) =>
-    center.add(new paper.Point(Math.cos((deg * Math.PI) / 180) * r, Math.sin((deg * Math.PI) / 180) * r));
-  const from = pt(startAngle);
-  const to = pt(startAngle + sweep);
-  const through = pt(startAngle + sweep / 2);
-  adoptGeometry(path, new paper.Path.Arc({ from, through, to, insert: false }));
-  path.data = preserveMeta(path, arcDataFor(path, center, r));
-}
-
-function nearestSegment(path: paper.Path, point: paper.Point): paper.Segment {
-  let best = path.firstSegment;
-  let bestD = Infinity;
-  for (const segment of path.segments) {
-    const d = segment.point.getDistance(point);
-    if (d < bestD) {
-      bestD = d;
-      best = segment;
-    }
-  }
-  return best;
-}
-
-function clickForLine(data: DimensionData, start: paper.Point, end: paper.Point): paper.Point {
-  if (data.click) return data.click;
-  if (data.linkedRole === 'first') return end;
-  if (data.linkedRole === 'last') return start;
-  return start.add(end).divide(2);
-}
-
-export function applyDimensionValue(group: paper.Group, value: number): void {
+export function offsetDimension(group: paper.Group, delta: paper.Point): void {
   const data = readDimensionData(group);
-  const next = Math.max(value, 1e-6);
-  const item = findItemByUid(data.linkedUid);
-
-  if (item instanceof paper.Path) {
-    if (data.kind === 'diameter' && item.data?.center instanceof paper.Point) {
-      rebuildCircle(item, item.data.center, next / 2);
-      const dir = data.p2.subtract(data.p1);
-      const unit = dir.length > 1e-9 ? dir.normalize() : new paper.Point(1, 0);
-      data.p1 = item.data.center.clone();
-      data.p2 = data.p1.add(unit.multiply(next / 2));
-    } else if (data.kind === 'radius' && item.data?.center instanceof paper.Point) {
-      rebuildArc(item, item.data.center, next);
-      const dir = data.p2.subtract(data.p1);
-      const unit = dir.length > 1e-9 ? dir.normalize() : new paper.Point(1, 0);
-      data.p1 = item.data.center.clone();
-      data.p2 = data.p1.add(unit.multiply(next));
-    } else if (data.kind === 'distance') {
-      const moved = driveDistance(data.p1, data.p2, next);
-      const oldP2 = data.p2.clone();
-      const newP2 = new paper.Point(moved.p2.x, moved.p2.y);
-      const owner = findItemByUid(data.p2Uid) ?? item;
-      if (owner instanceof paper.Path) applyRole(owner, data.p2Role, oldP2, newP2);
-      data.p2 = newP2;
-    } else if (item.segments.length >= 2) {
-      const s1 = nearestSegment(item, data.p1);
-      const s2 = nearestSegment(item, data.p2);
-      const start = s1.point;
-      const end = s2.point;
-      const click = clickForLine(data, start, end);
-      const driven =
-        data.kind === 'horizontal'
-          ? driveProjectedLength(start, end, click, next, 'x')
-          : data.kind === 'vertical'
-            ? driveProjectedLength(start, end, click, next, 'y')
-            : driveLineLength(start, end, click, next);
-      s1.point = new paper.Point(driven.start.x, driven.start.y);
-      s2.point = new paper.Point(driven.end.x, driven.end.y);
-      if (!item.data?.isSpline && !item.data?.center) {
-        for (const segment of item.segments) {
-          segment.handleIn.set(0, 0);
-          segment.handleOut.set(0, 0);
-        }
-      }
-      data.p1 = s1.point.clone();
-      data.p2 = s2.point.clone();
-    }
-  }
-
-  data.value = next;
-  group.data = data;
+  data.textPoint = data.textPoint.add(delta);
+  group.data = { ...group.data, textPoint: data.textPoint };
   rebuildDimension(group);
 }
 

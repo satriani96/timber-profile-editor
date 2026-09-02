@@ -26,7 +26,7 @@ const EMPTY_VALUES: Record<NumericField, string> = {
   radius: '',
 };
 
-/** Keyboard-driven dimension entry (Tab to open, Enter to apply, Escape to cancel). */
+/** Keyboard-driven size entry while drawing (Tab to open, Enter to apply, Escape to cancel). */
 export function useNumericInput({ activeTool, session, cornerPointRef, filletToolInstanceRef, lineToolInstanceRef }: Args) {
   const [isActive, setIsActive] = useState(false);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);

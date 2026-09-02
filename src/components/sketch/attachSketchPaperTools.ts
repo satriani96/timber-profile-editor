@@ -36,7 +36,6 @@ export interface SketchPaperToolsContext {
   dimensionToolRef: MutableRefObject<paper.Tool | null>;
   dimensionToolInstanceRef: MutableRefObject<ReturnType<typeof createDimensionTool> | null>;
   isDimensioningRef: MutableRefObject<boolean>;
-  onDimensionPlaced: (group: paper.Group) => void;
   currentSplineRef: MutableRefObject<paper.Path | null>;
   isDrawingSplineRef: MutableRefObject<boolean>;
   selectedSplinePointRef: MutableRefObject<{ path: paper.Path; index: number } | null>;
@@ -247,7 +246,6 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
     isDimensioningRef: ctx.isDimensioningRef,
     handleDragPan,
     getSnapConfig: () => snapConfig,
-    onPlaced: ctx.onDimensionPlaced,
   });
   ctx.dimensionToolInstanceRef.current = dimensionTool;
   const dimensionPaperTool = ensureTool(ctx.dimensionToolRef);

@@ -148,7 +148,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <circle cx="12" cy="12" r="1.5" fill="currentColor" />
         </Icon>
       </ToolButton>
-      <ToolButton label="Dimension" shortcut="D" {...tool('dimension')}>
+      <ToolButton label="Dimension — measure a length, diameter, or radius" shortcut="D" {...tool('dimension')}>
         <Icon>
           <path d="M4 6v12" />
           <path d="M20 6v12" />
