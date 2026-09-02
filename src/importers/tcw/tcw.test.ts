@@ -6,6 +6,7 @@ import { readCompoundFile } from './cfb';
 import { inflateIfNeeded, isGzip, splitRecords } from './tcwRecords';
 import { classifyRecord, type TcwEntity } from './tcwGeometry';
 import { importTcw, parseTcw, prepareTcwImport } from '../ImportTCW';
+import { importDxfText } from '../ImportDXF';
 
 function fixture(name: string): ArrayBuffer {
   const path = fileURLToPath(new URL(`./__fixtures__/${name}`, import.meta.url));
@@ -155,16 +156,50 @@ describe('TurboCAD splines and elliptical arcs', () => {
     expect(sweep).toBeLessThan(180);
   });
 
-  it('builds the spline as a smooth curve through its fit points and the ellipse as a true elliptical arc', async () => {
+  it('matches TurboCAD\'s own DXF export of the same drawing', async () => {
+    paper.setup(new paper.Size(800, 600));
+    const fromTcw = await importTcw(fixture(C375));
+    const dxfText = new TextDecoder('latin1').decode(fixture('65x15-c375-turbocad-export.dxf'));
+    // TurboCAD writes $INSUNITS = 1 (inches) but the numbers are millimetres; import 1:1.
+    const fromDxf = importDxfText(dxfText, 1);
+    expect(fromTcw.imported).toBe(11);
+    expect(fromDxf.imported).toBe(11);
+
+    const tcwSpline = fromTcw.items.find((p) => p.data?.isSpline)!;
+    const dxfSpline = fromDxf.items.find((p) => p.data?.isSpline)!;
+    expect(tcwSpline.segments).toHaveLength(dxfSpline.segments.length);
+    tcwSpline.segments.forEach((seg, i) => {
+      const ref = dxfSpline.segments[i];
+      expect(seg.point.getDistance(ref.point)).toBeLessThan(1e-6);
+      expect(seg.handleIn.getDistance(ref.handleIn)).toBeLessThan(1e-6);
+      expect(seg.handleOut.getDistance(ref.handleOut)).toBeLessThan(1e-6);
+    });
+
+    // The elliptical arc must coincide with the DXF ELLIPSE entity along its whole length.
+    const tcwEllipse = fromTcw.items.find((p) => !p.data?.isSpline && p.hasHandles() && !p.data?.isArc)!;
+    const dxfEllipse = fromDxf.items.find((p) => !p.data?.isSpline && p.hasHandles() && !p.data?.isArc)!;
+    expect(tcwEllipse.length).toBeCloseTo(dxfEllipse.length, 5);
+    for (let t = 0; t <= 1; t += 0.1) {
+      const p = tcwEllipse.getPointAt(tcwEllipse.length * t)!;
+      expect(dxfEllipse.getNearestLocation(p)!.distance).toBeLessThan(1e-5);
+    }
+  });
+
+  it('builds the spline from control points and the ellipse as a true elliptical arc', async () => {
     paper.setup(new paper.Size(800, 600));
     const summary = await importTcw(fixture(C375));
     expect(summary.imported).toBe(11);
 
     const spline = summary.items.find((p) => p.data?.isSpline)!;
-    expect(spline.segments).toHaveLength(22);
+    // 22 control points, cubic: 19 spans -> 20 Bézier knots.
+    expect(spline.segments).toHaveLength(20);
     expect(spline.hasHandles()).toBe(true);
-    expect(spline.data.fitPoints[0].x).toBeCloseTo(15.91177, 4);
-    expect(spline.data.fitPoints[0].y).toBeCloseTo(-19.25954, 4); // Y flipped into sketch space
+    // A clamped B-spline starts and ends on its first and last control points.
+    expect(spline.firstSegment.point.x).toBeCloseTo(15.91177, 4);
+    expect(spline.firstSegment.point.y).toBeCloseTo(-19.25954, 4); // Y flipped into sketch space
+    expect(spline.lastSegment.point.x).toBeCloseTo(-18.07608, 4);
+    // Interior control points are not on the curve.
+    expect(spline.getNearestLocation(new paper.Point(11.32788, -22.88164))!.distance).toBeGreaterThan(0.05);
 
     const ellipse = summary.items.find((p) => !p.data?.isSpline && p.hasHandles() && !p.data?.isArc)!;
     expect(ellipse).toBeDefined();

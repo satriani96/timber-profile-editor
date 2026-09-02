@@ -2,6 +2,7 @@ import type { TcwRecord } from './tcwRecords';
 
 export type TcwEntity =
   | { type: 'polyline'; points: [number, number][]; closed: boolean }
+  /** Control points of a clamped uniform cubic B-spline. */
   | { type: 'spline'; points: [number, number][] }
   | { type: 'circle'; center: [number, number]; radius: number }
   | { type: 'arc'; center: [number, number]; radius: number; startAngle: number; endAngle: number }
@@ -24,6 +25,7 @@ export type TcwClassification = { entity: TcwEntity } | { skip: string };
 const EPSILON = 1e-6;
 /** Vertex flag bit 0: set on line/arc vertices, clear on spline fit points. */
 const STRAIGHT_VERTEX_BIT = 0x01;
+const MIN_SPLINE_CONTROL_POINTS = 4;
 
 type Pt = [number, number];
 
@@ -51,7 +53,7 @@ function angleDeg(center: Pt, p: Pt) {
  *   means a full circle. Both are produced by the circle *and* arc tools.
  * - Elliptical arc: the same four points after TurboCAD's non-uniform scale;
  *   the centered ellipse through the three outer points is exact.
- * - Spline: vertices flagged as curve points; the points are fit points.
+ * - Spline: vertices flagged as curve points; the points are B-spline control points.
  * - Anything else with ≥ 2 points is a polyline (2 points = line).
  */
 export function classifyRecord(record: TcwRecord): TcwClassification {
@@ -70,9 +72,8 @@ export function classifyRecord(record: TcwRecord): TcwClassification {
 
   const splineVertices =
     record.vertexFlags.length > 0 && record.vertexFlags.every((f) => (f & STRAIGHT_VERTEX_BIT) === 0);
-  if (splineVertices && points.length >= 3 && !tools.includes('CMD_LINE@')) {
-    const fit = dedupe(points);
-    if (fit.length >= 3) return { entity: { type: 'spline', points: fit } };
+  if (splineVertices && points.length >= MIN_SPLINE_CONTROL_POINTS && !tools.includes('CMD_LINE@')) {
+    return { entity: { type: 'spline', points } };
   }
 
   // Line records often carry a reference point (midpoint or an endpoint) ahead of the two vertices.

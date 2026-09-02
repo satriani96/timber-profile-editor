@@ -3,6 +3,7 @@ import { millimetresPerUnit, parseDxf, type DxfDocument, type DxfEntity, type Dx
 import { bsplineToSegments, clampedUniformKnots, knotsAreValid, sampleBSpline } from './splineConversion';
 import {
   buildCircular,
+  buildEllipticArc,
   commitImport,
   commitPath,
   measureBuilder,
@@ -14,7 +15,6 @@ import {
 
 const MAX_BLOCK_DEPTH = 8;
 const SPLINE_SAMPLES_PER_SPAN = 4;
-const ELLIPSE_SAMPLES = 48;
 
 const INSUNITS_NAMES: Record<number, string> = {
   1: 'inches',
@@ -125,12 +125,15 @@ function buildEntities(
         break;
       }
       case 'ELLIPSE': {
-        const path = buildEllipse(entity);
-        if (!path) {
+        const major = toPoint(entity.majorAxis);
+        const a = major.length;
+        const b = a * entity.ratio;
+        if (a <= 0 || b <= 0) {
           skip(skipped, 'ELLIPSE (degenerate)');
           break;
         }
-        commitPath(path, matrix, items);
+        const toDeg = (rad: number) => (rad * 180) / Math.PI;
+        buildEllipticArc(toPoint(entity.center), a, b, major.angle, toDeg(entity.startParam), toDeg(entity.endParam), matrix, items);
         break;
       }
       case 'INSERT': {
@@ -263,32 +266,3 @@ function buildSpline(entity: Extract<DxfEntity, { type: 'SPLINE' }>): paper.Path
   return null;
 }
 
-function buildEllipse(entity: Extract<DxfEntity, { type: 'ELLIPSE' }>): paper.Path | null {
-  const center = toPoint(entity.center);
-  const major = toPoint(entity.majorAxis);
-  const a = major.length;
-  const b = a * entity.ratio;
-  if (a <= 0 || b <= 0) return null;
-  const minor = new paper.Point(-major.y, major.x).normalize().multiply(b);
-
-  let sweep = entity.endParam - entity.startParam;
-  while (sweep <= 0) sweep += Math.PI * 2;
-  const full = sweep >= Math.PI * 2 - 1e-9;
-
-  if (full) {
-    const path = new paper.Path.Ellipse({ center: [0, 0], radius: [a, b] });
-    path.rotate(major.angle, new paper.Point(0, 0));
-    path.position = center;
-    return path;
-  }
-
-  const samples = Math.max(8, Math.round((ELLIPSE_SAMPLES * sweep) / (Math.PI * 2)));
-  const points: paper.Point[] = [];
-  for (let i = 0; i <= samples; i++) {
-    const t = entity.startParam + (sweep * i) / samples;
-    points.push(center.add(major.multiply(Math.cos(t))).add(minor.multiply(Math.sin(t))));
-  }
-  const path = new paper.Path({ segments: points });
-  path.smooth({ type: 'catmull-rom', factor: 0.5 });
-  return path;
-}

@@ -2,6 +2,7 @@ import paper from 'paper';
 import { readCompoundFile } from './tcw/cfb';
 import { inflateIfNeeded, splitRecords } from './tcw/tcwRecords';
 import { classifyRecord, type TcwEntity } from './tcw/tcwGeometry';
+import { bsplineToSegments, clampedUniformKnots } from './splineConversion';
 import {
   buildCircular,
   buildEllipticArc,
@@ -68,9 +69,16 @@ function buildTcwEntities(entities: TcwEntity[], matrix: paper.Matrix, items: pa
         break;
       }
       case 'spline': {
-        // TurboCAD stores fit points only; interpolate them with a C2 cubic spline.
-        const path = new paper.Path({ segments: entity.points });
-        path.smooth({ type: 'continuous' });
+        // TurboCAD stores the control points of a clamped uniform cubic B-spline (verified
+        // against its own DXF export); convert them to exact Bézier segments.
+        const control = entity.points.map(([x, y]) => ({ x, y }));
+        const degree = Math.min(3, control.length - 1);
+        const segments = bsplineToSegments(control, degree, clampedUniformKnots(control.length, degree));
+        if (!segments) {
+          skip(skipped, 'spline (unsupported control net)');
+          break;
+        }
+        const path = new paper.Path({ segments });
         path.data = { isSpline: true };
         commitPath(path, matrix, items);
         break;
