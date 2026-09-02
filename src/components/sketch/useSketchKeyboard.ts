@@ -22,6 +22,8 @@ interface Args {
   zoomToFit: () => void;
   cancelDimension: () => void;
   isDimensioningRef: MutableRefObject<boolean>;
+  cancelMarquee: () => void;
+  isMarqueeing: () => boolean;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -57,6 +59,8 @@ export function useSketchKeyboard({
   zoomToFit,
   cancelDimension,
   isDimensioningRef,
+  cancelMarquee,
+  isMarqueeing,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -97,6 +101,10 @@ export function useSketchKeyboard({
           return;
         }
         case 'Escape':
+          if (isMarqueeing()) {
+            cancelMarquee();
+            return;
+          }
           if (isDimensioningRef.current) {
             cancelDimension();
             return;
@@ -167,5 +175,7 @@ export function useSketchKeyboard({
     zoomToFit,
     cancelDimension,
     isDimensioningRef,
+    cancelMarquee,
+    isMarqueeing,
   ]);
 }

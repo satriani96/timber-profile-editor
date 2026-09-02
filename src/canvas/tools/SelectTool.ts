@@ -3,6 +3,7 @@ import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
 import { ancestorDimension, offsetDimension } from '../dimensions';
 import { movePath } from '../geometry/itemData';
 import { isPrimaryButton, isShiftHeld } from './drawingState';
+import { applyMarqueeSelection, createMarqueePreview, isClickNotDrag, marqueeMode } from './marquee';
 
 interface StateManager {
   draggedSegmentRef: React.MutableRefObject<paper.Segment | null>;
@@ -18,10 +19,18 @@ interface SelectedHandle {
   handleType: 'in' | 'out';
 }
 
+interface MarqueeState {
+  from: paper.Point;
+  additive: boolean;
+  preview: paper.Path | null;
+  dragging: boolean;
+}
+
 /**
  * Selection and direct manipulation: drag a vertex to edit it, drag a stroke to
  * move the whole path (and every other selected path), Shift-click to add to
- * the selection, drag spline handles to reshape curves.
+ * the selection, drag spline handles to reshape curves. Empty-canvas drag is a
+ * window (L→R) or crossing (R→L) marquee.
  */
 export function createSelectTool(stateManager: StateManager) {
   const { draggedSegmentRef, isPanningRef, isSpacebarPanRef, handleDragPan, handleVertexDrag } = stateManager;
@@ -29,11 +38,42 @@ export function createSelectTool(stateManager: StateManager) {
   let selectedHandle: SelectedHandle | null = null;
   let movingPaths: paper.Path[] = [];
   let movingDimensions: paper.Group[] = [];
+  let marquee: MarqueeState | null = null;
 
   const matchSketch = (h: paper.HitResult) => isSketchPath(h.item);
 
   function selectedSketchPaths(): paper.Path[] {
     return paper.project.selectedItems.filter(isSketchPath);
+  }
+
+  function clearMarqueePreview() {
+    if (!marquee) return;
+    marquee.preview?.remove();
+    marquee.preview = null;
+  }
+
+  function cancelMarquee() {
+    clearMarqueePreview();
+    marquee = null;
+  }
+
+  function updateMarquee(to: paper.Point) {
+    if (!marquee) return;
+    if (!marquee.dragging && isClickNotDrag(marquee.from, to)) return;
+    marquee.dragging = true;
+    clearMarqueePreview();
+    marquee.preview = createMarqueePreview(marquee.from, to);
+  }
+
+  function finishMarquee(to: paper.Point) {
+    if (!marquee) return;
+    const { from, additive, dragging } = marquee;
+    cancelMarquee();
+    if (!dragging || isClickNotDrag(from, to)) {
+      if (!additive) paper.project.deselectAll();
+      return;
+    }
+    applyMarqueeSelection(new paper.Rectangle(from, to), marqueeMode(from, to), additive);
   }
 
   return {
@@ -43,6 +83,7 @@ export function createSelectTool(stateManager: StateManager) {
       selectedHandle = null;
       movingPaths = [];
       movingDimensions = [];
+      cancelMarquee();
       const tolerance = 8 / paper.view.zoom;
       const additive = isShiftHeld(event);
 
@@ -105,12 +146,16 @@ export function createSelectTool(stateManager: StateManager) {
         return;
       }
 
-      if (!additive) paper.project.deselectAll();
+      marquee = { from: event.point.clone(), additive, preview: null, dragging: false };
     },
 
     onMouseDrag: (event: paper.ToolEvent) => {
       if (isPanningRef.current || isSpacebarPanRef.current) {
         handleDragPan(event);
+        return;
+      }
+      if (marquee) {
+        updateMarquee(event.point);
         return;
       }
       if (selectedHandle) {
@@ -139,16 +184,19 @@ export function createSelectTool(stateManager: StateManager) {
       }
     },
 
-    onMouseUp: () => {
+    onMouseUp: (event?: paper.ToolEvent) => {
+      if (marquee) finishMarquee(event?.point ?? marquee.from);
       draggedSegmentRef.current = null;
       selectedHandle = null;
       movingPaths = [];
       movingDimensions = [];
     },
 
+    cancel: cancelMarquee,
+    isBusy: () => Boolean(marquee),
     onKeyDown: null,
     onKeyUp: null,
     onActivate: () => {},
-    onDeactivate: () => {},
+    onDeactivate: cancelMarquee,
   };
 }

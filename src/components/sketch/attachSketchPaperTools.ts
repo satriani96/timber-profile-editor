@@ -20,6 +20,7 @@ export interface SketchPaperToolsContext {
   imageUploadRef: MutableRefObject<ImageUpload | null>;
   history: SketchHistory;
   selectToolRef: MutableRefObject<paper.Tool | null>;
+  selectToolInstanceRef: MutableRefObject<ReturnType<typeof createSelectTool> | null>;
   lineToolRef: MutableRefObject<paper.Tool | null>;
   lineToolInstanceRef: MutableRefObject<ReturnType<typeof createLineTool> | null>;
   squareToolRef: MutableRefObject<paper.Tool | null>;
@@ -196,11 +197,12 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
     handleDragPan,
     handleVertexDrag,
   });
+  ctx.selectToolInstanceRef.current = selectTool;
   const selectPaperTool = ensureTool(ctx.selectToolRef);
   selectPaperTool.onMouseDown = withCheckpoint(selectTool.onMouseDown);
   selectPaperTool.onMouseDrag = selectTool.onMouseDrag;
-  selectPaperTool.onMouseUp = () => {
-    selectTool.onMouseUp();
+  selectPaperTool.onMouseUp = (event: paper.ToolEvent) => {
+    selectTool.onMouseUp(event);
     ctx.snapIndicatorRef.current?.remove();
     ctx.snapIndicatorRef.current = null;
   };

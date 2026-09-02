@@ -7,6 +7,7 @@ import { createFitSplineTool } from '../canvas/tools/FitSplineTool';
 import { createLineTool } from '../canvas/tools/LineTool';
 import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
 import { createDimensionTool } from '../canvas/tools/DimensionTool';
+import { createSelectTool } from '../canvas/tools/SelectTool';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
@@ -130,6 +131,7 @@ function SketchCanvas(
   const [isSplineDrawing, setIsSplineDrawing] = useState(false);
   const [splineSegmentCount, setSplineSegmentCount] = useState(0);
   const selectToolRef = useRef<paper.Tool | null>(null);
+  const selectToolInstanceRef = useRef<ReturnType<typeof createSelectTool> | null>(null);
   const lineToolRef = useRef<paper.Tool | null>(null);
   const lineToolInstanceRef = useRef<ReturnType<typeof createLineTool> | null>(null);
   const squareToolRef = useRef<paper.Tool | null>(null);
@@ -167,6 +169,10 @@ function SketchCanvas(
     isDimensioningRef.current = false;
   }, []);
 
+  const cancelMarquee = useCallback(() => {
+    selectToolInstanceRef.current?.cancel();
+  }, []);
+
   const finishCurrentSpline = useCallback(() => {
     currentSplineRef.current = null;
     isDrawingSplineRef.current = false;
@@ -201,10 +207,11 @@ function SketchCanvas(
     clearTransientVisuals();
     resetNumericInput();
     cancelDimension();
+    cancelMarquee();
     finishCurrentFilletOperation();
     updateAllStrokeWidths();
     paper.view.update();
-  }, [cancelDimension, clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
+  }, [cancelDimension, cancelMarquee, clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
 
   const runHistory = useCallback(
     (action: 'undo' | 'redo') => {
@@ -231,6 +238,8 @@ function SketchCanvas(
     zoomToFit,
     cancelDimension,
     isDimensioningRef,
+    cancelMarquee,
+    isMarqueeing: () => Boolean(selectToolInstanceRef.current?.isBusy()),
   });
 
   // --- DXF import/export ---
@@ -301,6 +310,7 @@ function SketchCanvas(
       imageUploadRef,
       history,
       selectToolRef,
+      selectToolInstanceRef,
       lineToolRef,
       lineToolInstanceRef,
       squareToolRef,
@@ -355,6 +365,7 @@ function SketchCanvas(
       if (isDrawingLineRef.current) cancelCurrentDrawing();
       if (currentSplineRef.current) cancelSpline();
       if (isDimensioningRef.current) cancelDimension();
+      cancelMarquee();
       finishCurrentFilletOperation();
     }
     clearTransientVisuals();
@@ -380,7 +391,7 @@ function SketchCanvas(
       isDrawingSplineRef.current = false;
     }
     tools[activeTool].current?.activate();
-  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelSpline, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
+  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelMarquee, cancelSpline, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
 
   // --- Canvas mouse listeners: wheel zoom, right/middle-button pan, spline double-click ---
   useEffect(() => {
