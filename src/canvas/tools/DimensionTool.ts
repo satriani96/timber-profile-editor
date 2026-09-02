@@ -1,16 +1,10 @@
 import paper from 'paper';
 import type { MutableRefObject } from 'react';
-import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
-import {
-  classifyLinearKind,
-  createDimension,
-  measureDimension,
-  rebuildDimension,
-  type DimensionData,
-  type DimensionKind,
-} from '../dimensions';
+import { BASE_STROKE_WIDTH } from '../../components/sketch/constants';
+import { classifyLinearKind, createDimension, measureDimension, rebuildDimension, type DimensionData } from '../dimensions';
 import { findSnap, type SnapConfig } from '../../utils/snapHelpers';
 import { isPrimaryButton } from './drawingState';
+import { pickDimensionTarget } from './dimensionPick';
 
 export interface DimensionToolState {
   isPanningRef: MutableRefObject<boolean>;
@@ -24,7 +18,6 @@ interface PendingLinear {
   mode: 'linear';
   p1: paper.Point;
   p2: paper.Point;
-  forceKind?: DimensionKind;
 }
 
 interface PendingRadial {
@@ -41,26 +34,11 @@ interface PendingDistance {
 
 type Pending = PendingLinear | PendingRadial | PendingDistance;
 
-/** Same distance-based lookup as the cut tools; slightly looser so circles/arcs are easy to pick. */
-const HIT_PX = 10;
+const HOVER_COLOR = '#2563eb';
 
-function isCircle(path: paper.Path): boolean {
-  return Boolean(path.closed && path.data?.center instanceof paper.Point && path.data?.isArc === false);
-}
-
-function isArcPath(path: paper.Path): boolean {
-  return Boolean(path.data?.isArc && path.data?.center instanceof paper.Point);
-}
-
-function straightEnds(location: paper.CurveLocation): { p1: paper.Point; p2: paper.Point } | null {
-  const curve = location.curve;
-  if (!curve || !curve.isStraight()) return null;
-  return { p1: curve.point1.clone(), p2: curve.point2.clone() };
-}
-
-function pickSnapPoint(point: paper.Point, snapConfig: SnapConfig): paper.Point | null {
-  const snap = findSnap(point, snapConfig);
-  return snap ? snap.point.clone() : null;
+function setCursor(cursor: string) {
+  const el = paper.view?.element as HTMLElement | undefined;
+  if (el) el.style.cursor = cursor;
 }
 
 export function createDimensionTool(state: DimensionToolState) {
@@ -68,20 +46,44 @@ export function createDimensionTool(state: DimensionToolState) {
 
   let pending: Pending | null = null;
   let preview: paper.Group | null = null;
+  let hoverClone: paper.Path | null = null;
+  let hoverPath: paper.Path | null = null;
 
   function clearPreview() {
     preview?.remove();
     preview = null;
   }
 
+  function clearHover() {
+    hoverClone?.remove();
+    hoverClone = null;
+    hoverPath = null;
+  }
+
   function finish() {
     clearPreview();
+    clearHover();
     pending = null;
     isDimensioningRef.current = false;
+    setCursor('crosshair');
   }
 
   function cancel() {
     finish();
+  }
+
+  function highlightEntity(path: paper.Path) {
+    if (hoverPath === path && hoverClone?.isInserted()) return;
+    clearHover();
+    hoverPath = path;
+    const clone = path.clone();
+    clone.data = { isTemporary: true };
+    clone.selected = false;
+    clone.fillColor = null;
+    clone.strokeColor = new paper.Color(HOVER_COLOR);
+    clone.strokeWidth = (path.strokeWidth || BASE_STROKE_WIDTH / paper.view.zoom) + 1.5 / paper.view.zoom;
+    clone.bringToFront();
+    hoverClone = clone;
   }
 
   function showPreview(data: Omit<DimensionData, 'isDimension' | 'layer'>) {
@@ -97,7 +99,7 @@ export function createDimensionTool(state: DimensionToolState) {
   function updatePreview(place: paper.Point) {
     if (!pending || pending.mode === 'distance') return;
     if (pending.mode === 'linear') {
-      const kind = pending.forceKind ?? classifyLinearKind(pending.p1, pending.p2, place);
+      const kind = classifyLinearKind(pending.p1, pending.p2, place);
       showPreview({
         kind,
         p1: pending.p1.clone(),
@@ -124,15 +126,35 @@ export function createDimensionTool(state: DimensionToolState) {
     preview = null;
     pending = null;
     isDimensioningRef.current = false;
+    clearHover();
   }
 
-  function startLinear(location: paper.CurveLocation) {
-    const ends = straightEnds(location);
-    if (!ends) return false;
-    pending = { mode: 'linear', p1: ends.p1, p2: ends.p2 };
-    isDimensioningRef.current = true;
-    updatePreview(ends.p1.add(ends.p2).divide(2));
-    return true;
+  function updateHover(point: paper.Point, snapConfig: SnapConfig) {
+    if (pending?.mode === 'distance') {
+      findSnap(point, snapConfig);
+      clearHover();
+      setCursor('crosshair');
+      return;
+    }
+    if (pending) {
+      findSnap(point, snapConfig);
+      clearHover();
+      updatePreview(point);
+      return;
+    }
+    const pick = pickDimensionTarget(point, snapConfig);
+    if (pick?.type === 'point') {
+      clearHover();
+      setCursor('crosshair');
+      return;
+    }
+    if (pick) {
+      highlightEntity(pick.path);
+      setCursor('pointer');
+      return;
+    }
+    clearHover();
+    setCursor('crosshair');
   }
 
   function onMouseDown(event: paper.ToolEvent) {
@@ -145,10 +167,11 @@ export function createDimensionTool(state: DimensionToolState) {
     const point = event.point;
 
     if (pending?.mode === 'distance') {
-      const second = pickSnapPoint(point, snapConfig);
-      if (!second) return;
-      pending = { mode: 'linear', p1: pending.first, p2: second, forceKind: 'distance' };
+      const snap = findSnap(point, snapConfig);
+      if (!snap) return;
+      pending = { mode: 'linear', p1: pending.first, p2: snap.point.clone() };
       isDimensioningRef.current = true;
+      clearHover();
       updatePreview(point);
       return;
     }
@@ -158,50 +181,30 @@ export function createDimensionTool(state: DimensionToolState) {
       return;
     }
 
-    const snap = findSnap(point, snapConfig);
-    const hit = nearestSketchPath(point, HIT_PX / paper.view.zoom);
+    const pick = pickDimensionTarget(point, snapConfig);
+    if (!pick) return;
 
-    if (hit && isCircle(hit.path)) {
-      if (snap?.kind === 'center') {
-        pending = { mode: 'distance', first: snap.point.clone() };
-        isDimensioningRef.current = true;
-        return;
-      }
-      const center = (hit.path.data.center as paper.Point).clone();
-      pending = { mode: 'radial', kind: 'diameter', center, onCurve: hit.location.point.clone() };
+    if (pick.type === 'point') {
+      pending = { mode: 'distance', first: pick.point };
       isDimensioningRef.current = true;
-      updatePreview(point);
+      clearHover();
       return;
     }
-
-    if (hit && isArcPath(hit.path)) {
-      const center = (hit.path.data.center as paper.Point).clone();
-      pending = { mode: 'radial', kind: 'radius', center, onCurve: hit.location.point.clone() };
-      isDimensioningRef.current = true;
-      updatePreview(point);
-      return;
+    if (pick.type === 'circle') {
+      pending = { mode: 'radial', kind: 'diameter', center: pick.center, onCurve: pick.onCurve };
+    } else if (pick.type === 'arc') {
+      pending = { mode: 'radial', kind: 'radius', center: pick.center, onCurve: pick.onCurve };
+    } else {
+      pending = { mode: 'linear', p1: pick.p1, p2: pick.p2 };
     }
-
-    const preferPoint = snap && (snap.kind === 'endpoint' || snap.kind === 'center');
-    if (preferPoint) {
-      pending = { mode: 'distance', first: snap.point.clone() };
-      isDimensioningRef.current = true;
-      return;
-    }
-
-    if (hit && isSketchPath(hit.path) && startLinear(hit.location)) return;
-
-    if (snap) {
-      pending = { mode: 'distance', first: snap.point.clone() };
-      isDimensioningRef.current = true;
-    }
+    isDimensioningRef.current = true;
+    clearHover();
+    updatePreview(point);
   }
 
   function onMouseMove(event: paper.ToolEvent) {
     if (isPanningRef.current || isSpacebarPanRef.current) return;
-    const snapConfig = getSnapConfig();
-    findSnap(event.point, snapConfig);
-    if (pending && pending.mode !== 'distance') updatePreview(event.point);
+    updateHover(event.point, getSnapConfig());
   }
 
   return {
@@ -212,7 +215,7 @@ export function createDimensionTool(state: DimensionToolState) {
     },
     cancel,
     isBusy: () => pending !== null,
-    onActivate: () => {},
+    onActivate: () => setCursor('crosshair'),
     onDeactivate: cancel,
   };
 }
