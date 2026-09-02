@@ -1,4 +1,5 @@
 import paper from 'paper';
+import { assignActiveLayer } from '../layers';
 import { adoptGeometry, isPrimaryButton, sketchStrokeColor, sketchStrokeWidth, type DrawingState } from './drawingState';
 
 /** Center-radius circle: click the center, then click (or type a diameter) for the radius. */
@@ -15,8 +16,10 @@ export function createCircleTool(stateManager: DrawingState) {
   } = stateManager;
 
   function setRadius(path: paper.Path, center: paper.Point, radius: number) {
+    const layer = path.data?.layer;
     adoptGeometry(path, new paper.Path.Circle({ center, radius: Math.max(radius, 1e-6), insert: false }));
     path.data = { center, radius, isArc: false };
+    if (layer) path.data.layer = layer;
   }
 
   return {
@@ -44,6 +47,7 @@ export function createCircleTool(stateManager: DrawingState) {
         strokeWidth: sketchStrokeWidth(),
       });
       path.data = { center, radius: 0, isArc: false };
+      assignActiveLayer(path);
       currentPathRef.current = path;
       isDrawingLineRef.current = true;
     },

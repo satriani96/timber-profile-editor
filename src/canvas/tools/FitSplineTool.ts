@@ -1,5 +1,7 @@
 import paper from 'paper';
 import React from 'react';
+import { assignActiveLayer } from '../layers';
+import { sketchStrokeColor, sketchStrokeWidth } from './drawingState';
 
 // StateManager contract for the Fit Point Spline tool
 export interface FitSplineStateManager {
@@ -88,11 +90,12 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         // Start a new path
         const path = new paper.Path({
           segments: [event.point],
-          strokeColor: new paper.Color('black'),
-          strokeWidth: 2 / paper.view.zoom,
+          strokeColor: sketchStrokeColor(),
+          strokeWidth: sketchStrokeWidth(),
           fullySelected: true,
         });
         path.data = { isSpline: true, fitPoints: [event.point.clone()] };
+        assignActiveLayer(path);
         currentSplineRef.current = path;
         // Notify React state
         if (stateManager.setIsSplineDrawing) stateManager.setIsSplineDrawing(true);
@@ -171,7 +174,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
           const added = path.add(event.point);
           // Ensure preview segment strokeWidth scales with zoom
           if (Array.isArray(added) ? added[0] : added) {
-            path.strokeWidth = 2 / paper.view.zoom;
+            path.strokeWidth = sketchStrokeWidth();
           }
           previewSegment = Array.isArray(added) ? added[0] : added;
         }

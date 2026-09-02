@@ -1,6 +1,14 @@
 import paper from 'paper';
+import { restoreLayerState, serializeLayerState, type LayerState } from './layers';
 
 const MAX_UNDO_STEPS = 60;
+const SNAPSHOT_VERSION = 1;
+
+interface HistorySnapshot {
+  v: number;
+  layers: LayerState;
+  items: unknown[];
+}
 
 /** Everything in the sketch except the traced image and transient previews/markers. */
 function persistentItems(): paper.Item[] {
@@ -8,7 +16,12 @@ function persistentItems(): paper.Item[] {
 }
 
 function serialize(): string {
-  return JSON.stringify(persistentItems().map((item) => item.exportJSON({ asString: false })));
+  const snapshot: HistorySnapshot = {
+    v: SNAPSHOT_VERSION,
+    layers: serializeLayerState(),
+    items: persistentItems().map((item) => item.exportJSON({ asString: false })),
+  };
+  return JSON.stringify(snapshot);
 }
 
 function restore(snapshot: string): void {
@@ -16,11 +29,14 @@ function restore(snapshot: string): void {
   for (const item of [...layer.children]) {
     if (!(item instanceof paper.Raster)) item.remove();
   }
-  const entries = JSON.parse(snapshot) as unknown[];
+  const parsed = JSON.parse(snapshot) as HistorySnapshot | unknown[];
+  const entries = Array.isArray(parsed) ? parsed : (parsed.items ?? []);
+  const layers = Array.isArray(parsed) ? undefined : parsed.layers;
   for (const entry of entries) layer.importJSON(JSON.stringify(entry));
   for (const item of layer.children) {
     if (item instanceof paper.Raster) item.sendToBack();
   }
+  restoreLayerState(layers);
   paper.project.deselectAll();
 }
 

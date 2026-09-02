@@ -1,4 +1,5 @@
 import paper from 'paper';
+import { assignActiveLayer } from '../layers';
 import { adoptGeometry, isPrimaryButton, sketchStrokeColor, sketchStrokeWidth, type DrawingState } from './drawingState';
 
 /** Two-corner rectangle: click one corner, then click (or type W/H) for the opposite corner. */
@@ -15,6 +16,7 @@ export function createSquareTool(stateManager: DrawingState) {
   } = stateManager;
 
   function setCorner(path: paper.Path, start: paper.Point, end: paper.Point) {
+    const layer = path.data?.layer;
     adoptGeometry(path, new paper.Path.Rectangle({ from: start, to: end, insert: false }));
     path.data = {
       isRect: true,
@@ -23,6 +25,7 @@ export function createSquareTool(stateManager: DrawingState) {
       width: Math.abs(end.x - start.x),
       height: Math.abs(end.y - start.y),
     };
+    if (layer) path.data.layer = layer;
   }
 
   return {
@@ -49,6 +52,7 @@ export function createSquareTool(stateManager: DrawingState) {
         strokeWidth: sketchStrokeWidth(),
       });
       path.data = { isRect: true, startPoint: start, endPoint: start, width: 0, height: 0 };
+      assignActiveLayer(path);
       currentPathRef.current = path;
       isDrawingLineRef.current = true;
     },

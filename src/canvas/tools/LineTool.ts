@@ -1,5 +1,6 @@
 import paper from 'paper';
 import { constrainToAxis } from '../../utils/snapHelpers';
+import { assignActiveLayer } from '../layers';
 import {
   isPrimaryButton,
   isShiftHeld,
@@ -31,6 +32,7 @@ export function createLineTool(stateManager: DrawingState) {
       strokeColor: sketchStrokeColor(),
       strokeWidth: sketchStrokeWidth(),
     });
+    assignActiveLayer(currentPathRef.current);
     isDrawingLineRef.current = true;
   }
 

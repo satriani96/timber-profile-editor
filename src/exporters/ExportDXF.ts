@@ -1,7 +1,9 @@
-import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d } from '@tarikjabiri/dxf';
+import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d, type CommonEntityOptions } from '@tarikjabiri/dxf';
 import paper from 'paper';
 import { arcAngles } from '../canvas/geometry/pathCuts';
+import { getLayerState, itemLayerName } from '../canvas/layers';
 import { pathToBezierSpline } from '../importers/splineConversion';
+import { hexToAci } from './aci';
 
 interface FilletMeta {
   cornerIndex: number;
@@ -24,14 +26,34 @@ const FREEFORM_SAMPLES = 16;
 export function buildDxf(project: paper.Project = paper.project): string {
   const dxf = new DxfWriter();
   dxf.setUnits(Units.Millimeters);
+  registerLayers(dxf, project);
 
   for (const item of project.activeLayer.children) {
-    if (!(item instanceof paper.Path) || !item.visible) continue;
+    if (!(item instanceof paper.Path)) continue;
     if (item.data?.isTemporary || item.data?.isMeasurement) continue;
     if (item.segments.length < 2 || item.length <= 0) continue;
     exportPath(item, dxf);
   }
   return dxf.stringify();
+}
+
+function registerLayers(dxf: DxfWriter, project: paper.Project) {
+  const seen = new Set<string>();
+  const add = (name: string, color: string) => {
+    if (!name || name === '0' || seen.has(name)) return;
+    if (!dxf.layer(name)) dxf.addLayer(name, hexToAci(color), 'Continuous');
+    seen.add(name);
+  };
+  for (const layer of getLayerState().layers) add(layer.name, layer.color);
+  for (const item of project.activeLayer.children) {
+    if (item.data?.isTemporary || item.data?.isMeasurement) continue;
+    const name = itemLayerName(item);
+    add(name, '#000000');
+  }
+}
+
+function entityOpts(path: paper.Path): CommonEntityOptions {
+  return { layerName: itemLayerName(path) };
 }
 
 /** Builds the DXF and triggers a browser download. */
@@ -61,15 +83,23 @@ function dxfVertex(p: paper.Point) {
   return { point: point2d(p.x, -p.y) };
 }
 
-function addArc(dxf: DxfWriter, center: paper.Point, radius: number, startAngle: number, endAngle: number) {
+function addArc(
+  dxf: DxfWriter,
+  center: paper.Point,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+  options?: CommonEntityOptions
+) {
   const start = ((-endAngle % 360) + 360) % 360;
   let end = ((-startAngle % 360) + 360) % 360;
   if (end <= start) end += 360;
-  dxf.addArc(dxfPoint(center), radius, start, end);
+  dxf.addArc(dxfPoint(center), radius, start, end, options);
 }
 
 function exportPath(path: paper.Path, dxf: DxfWriter): void {
   const data = (path.data ?? {}) as Record<string, unknown>;
+  const opts = entityOpts(path);
 
   if (Array.isArray(data.fillets) && data.fillets.length > 0 && path.closed) {
     exportFilletedPolygon(path, data.fillets as FilletMeta[], dxf);
@@ -80,11 +110,11 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
   const radius = data.radius;
   if (center instanceof paper.Point && typeof radius === 'number' && radius > 0) {
     if (path.closed && !data.isArc) {
-      dxf.addCircle(dxfPoint(center), radius);
+      dxf.addCircle(dxfPoint(center), radius, opts);
       return;
     }
     if (data.isArc && typeof data.startAngle === 'number' && typeof data.endAngle === 'number') {
-      addArc(dxf, center, radius, data.startAngle, data.endAngle);
+      addArc(dxf, center, radius, data.startAngle, data.endAngle, opts);
       return;
     }
   }
@@ -97,27 +127,27 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
   if (path.curves.every((c) => c.isStraight())) {
     const vertices = path.segments.map((s) => dxfVertex(s.point));
     if (path.closed) {
-      dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed });
+      dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed, ...opts });
     } else if (vertices.length === 2) {
-      dxf.addLine(dxfPoint(path.firstSegment.point), dxfPoint(path.lastSegment.point));
+      dxf.addLine(dxfPoint(path.firstSegment.point), dxfPoint(path.lastSegment.point), opts);
     } else {
-      dxf.addLWPolyline(vertices);
+      dxf.addLWPolyline(vertices, opts);
     }
     return;
   }
 
-  for (const curve of path.curves) exportCurve(curve, dxf);
+  for (const curve of path.curves) exportCurve(curve, dxf, opts);
 }
 
 /** Straight curves become lines, circular curves become arcs, anything else is sampled. */
-function exportCurve(curve: paper.Curve, dxf: DxfWriter): void {
+function exportCurve(curve: paper.Curve, dxf: DxfWriter, options?: CommonEntityOptions): void {
   if (curve.isStraight()) {
-    dxf.addLine(dxfPoint(curve.point1), dxfPoint(curve.point2));
+    dxf.addLine(dxfPoint(curve.point1), dxfPoint(curve.point2), options);
     return;
   }
   const arc = fitCircularArc(curve);
   if (arc) {
-    addArc(dxf, arc.center, arc.radius, arc.startAngle, arc.endAngle);
+    addArc(dxf, arc.center, arc.radius, arc.startAngle, arc.endAngle, options);
     return;
   }
   const vertices = [];
@@ -125,7 +155,7 @@ function exportCurve(curve: paper.Curve, dxf: DxfWriter): void {
     const p = curve.getPointAtTime(i / FREEFORM_SAMPLES);
     vertices.push(dxfVertex(p));
   }
-  dxf.addLWPolyline(vertices);
+  dxf.addLWPolyline(vertices, options);
 }
 
 /** Circle through three points, or null when they are (nearly) collinear. */
@@ -165,13 +195,16 @@ function exportSpline(path: paper.Path, dxf: DxfWriter): void {
   const { controlPoints, knots } = pathToBezierSpline(path);
   const fitPoints = path.segments.map((s) => dxfPoint(s.point));
   if (path.closed) fitPoints.push(dxfPoint(path.firstSegment.point));
-  dxf.addSpline({
-    controlPoints: controlPoints.map((p) => point3d(p.x, -p.y, 0)),
-    fitPoints,
-    knots,
-    degreeCurve: 3,
-    flags: SplineFlags.Planar | (path.closed ? SplineFlags.Closed : 0),
-  });
+  dxf.addSpline(
+    {
+      controlPoints: controlPoints.map((p) => point3d(p.x, -p.y, 0)),
+      fitPoints,
+      knots,
+      degreeCurve: 3,
+      flags: SplineFlags.Planar | (path.closed ? SplineFlags.Closed : 0),
+    },
+    entityOpts(path)
+  );
 }
 
 function resolveFilletCornerIndex(path: paper.Path, fillet: FilletMeta): number {
@@ -193,6 +226,7 @@ function resolveFilletCornerIndex(path: paper.Path, fillet: FilletMeta): number 
 
 /** Closed polygon with fillet metadata: straight edges between tangent points plus true arcs. */
 function exportFilletedPolygon(path: paper.Path, fillets: FilletMeta[], dxf: DxfWriter): void {
+  const opts = entityOpts(path);
   const resolvedByFillet = fillets.map((f) => resolveFilletCornerIndex(path, f));
   const filletCorners = new Set(resolvedByFillet);
 
@@ -226,10 +260,10 @@ function exportFilletedPolygon(path: paper.Path, fillets: FilletMeta[], dxf: Dxf
         ((p1.equals(pair.prev) && p2.equals(pair.next)) || (p1.equals(pair.next) && p2.equals(pair.prev)))
       );
     });
-    if (!isArcChord) dxf.addLine(dxfPoint(p1), dxfPoint(p2));
+    if (!isArcChord) dxf.addLine(dxfPoint(p1), dxfPoint(p2), opts);
   }
 
   for (const fillet of fillets) {
-    addArc(dxf, fillet.center, fillet.radius, fillet.startAngle, fillet.endAngle);
+    addArc(dxf, fillet.center, fillet.radius, fillet.startAngle, fillet.endAngle, opts);
   }
 }

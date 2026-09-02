@@ -193,19 +193,22 @@ export function openClosedPathAt(path: paper.Path, offset: number): void {
 export function assignPieceData(piece: paper.Path, sourceData: Record<string, unknown>): void {
   const center = sourceData.center;
   const radius = sourceData.radius;
+  const layer = typeof sourceData.layer === 'string' ? sourceData.layer : undefined;
   if (center instanceof paper.Point && typeof radius === 'number') {
     if (piece.closed) {
       piece.data = { center: center.clone(), radius, isArc: false };
     } else {
       piece.data = arcDataFor(piece, center, radius);
     }
+    if (layer) piece.data.layer = layer;
     return;
   }
   if (sourceData.isSpline) {
     piece.data = { isSpline: true, fitPoints: piece.segments.map((s) => s.point.clone()) };
+    if (layer) piece.data.layer = layer;
     return;
   }
-  piece.data = {};
+  piece.data = layer ? { layer } : {};
 }
 
 /**

@@ -1,6 +1,7 @@
 import paper from 'paper';
 import type { MutableRefObject } from 'react';
 import { BASE_STROKE_WIDTH } from '../../components/sketch/constants';
+import { getActiveLayerName, layerColor } from '../layers';
 
 /** State shared by the Line, Square, and Circle tools. */
 export interface DrawingState {
@@ -30,7 +31,7 @@ export function sketchStrokeWidth(): number {
 }
 
 export function sketchStrokeColor(): paper.Color {
-  return new paper.Color('black');
+  return new paper.Color(layerColor(getActiveLayerName()));
 }
 
 /** Replaces a path's geometry with that of a template path built with `insert: false`. */

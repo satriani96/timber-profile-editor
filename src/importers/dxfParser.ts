@@ -8,7 +8,9 @@ export interface DxfVertex extends DxfPoint {
   bulge: number;
 }
 
-export type DxfEntity =
+type WithLayer<T> = T & { layer: string };
+
+export type DxfEntity = WithLayer<
   | { type: 'LINE'; start: DxfPoint; end: DxfPoint }
   | { type: 'CIRCLE'; center: DxfPoint; radius: number }
   | { type: 'ARC'; center: DxfPoint; radius: number; startAngle: number; endAngle: number }
@@ -22,7 +24,13 @@ export type DxfEntity =
       knots: number[];
     }
   | { type: 'ELLIPSE'; center: DxfPoint; majorAxis: DxfPoint; ratio: number; startParam: number; endParam: number }
-  | { type: 'INSERT'; name: string; position: DxfPoint; scale: DxfPoint; rotation: number };
+  | { type: 'INSERT'; name: string; position: DxfPoint; scale: DxfPoint; rotation: number }
+>;
+
+export interface DxfLayerInfo {
+  name: string;
+  colorIndex: number;
+}
 
 export interface DxfBlock {
   name: string;
@@ -37,6 +45,7 @@ export interface DxfDocument {
   insUnits: number;
   /** Entity types encountered that the importer does not understand, with counts. */
   unsupported: Record<string, number>;
+  layers: DxfLayerInfo[];
 }
 
 interface Pair {
@@ -91,6 +100,10 @@ function pointAt(record: Pair[], xCode: number, yCode: number): DxfPoint {
   return { x: num(firstValue(record, xCode, '0')), y: num(firstValue(record, yCode, '0')) };
 }
 
+function recordLayer(record: Pair[]): string {
+  return firstValue(record, 8, '0');
+}
+
 function parseLwPolyline(record: Pair[]): DxfEntity {
   const vertices: DxfVertex[] = [];
   let closed = false;
@@ -110,7 +123,7 @@ function parseLwPolyline(record: Pair[]): DxfEntity {
         break;
     }
   }
-  return { type: 'POLYLINE', vertices, closed };
+  return { type: 'POLYLINE', vertices, closed, layer: recordLayer(record) };
 }
 
 function parseSpline(record: Pair[]): DxfEntity {
@@ -144,7 +157,7 @@ function parseSpline(record: Pair[]): DxfEntity {
         break;
     }
   }
-  return { type: 'SPLINE', degree, closed, controlPoints, fitPoints, knots };
+  return { type: 'SPLINE', degree, closed, controlPoints, fitPoints, knots, layer: recordLayer(record) };
 }
 
 /**
@@ -153,7 +166,7 @@ function parseSpline(record: Pair[]): DxfEntity {
  */
 function parseEntities(records: Pair[][], unsupported: Record<string, number>): DxfEntity[] {
   const entities: DxfEntity[] = [];
-  let pendingPolyline: { vertices: DxfVertex[]; closed: boolean } | null = null;
+  let pendingPolyline: { vertices: DxfVertex[]; closed: boolean; layer: string } | null = null;
   let skippingMeshVertices = false;
 
   for (const record of records) {
@@ -180,12 +193,13 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
       if (type === 'SEQEND') continue;
     }
 
+    const layer = recordLayer(record);
     switch (type) {
       case 'LINE':
-        entities.push({ type: 'LINE', start: pointAt(record, 10, 20), end: pointAt(record, 11, 21) });
+        entities.push({ type: 'LINE', start: pointAt(record, 10, 20), end: pointAt(record, 11, 21), layer });
         break;
       case 'CIRCLE':
-        entities.push({ type: 'CIRCLE', center: pointAt(record, 10, 20), radius: num(firstValue(record, 40, '0')) });
+        entities.push({ type: 'CIRCLE', center: pointAt(record, 10, 20), radius: num(firstValue(record, 40, '0')), layer });
         break;
       case 'ARC':
         entities.push({
@@ -194,6 +208,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           radius: num(firstValue(record, 40, '0')),
           startAngle: num(firstValue(record, 50, '0')),
           endAngle: num(firstValue(record, 51, '360')),
+          layer,
         });
         break;
       case 'LWPOLYLINE':
@@ -207,7 +222,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           skippingMeshVertices = true;
           break;
         }
-        pendingPolyline = { vertices: [], closed: (flags & 1) === 1 };
+        pendingPolyline = { vertices: [], closed: (flags & 1) === 1, layer };
         break;
       }
       case 'SPLINE':
@@ -221,6 +236,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           ratio: num(firstValue(record, 40, '1')),
           startParam: num(firstValue(record, 41, '0')),
           endParam: num(firstValue(record, 42, String(Math.PI * 2))),
+          layer,
         });
         break;
       case 'INSERT':
@@ -230,6 +246,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           position: pointAt(record, 10, 20),
           scale: { x: num(firstValue(record, 41, '1')), y: num(firstValue(record, 42, '1')) },
           rotation: num(firstValue(record, 50, '0')),
+          layer,
         });
         break;
       case 'VERTEX':
@@ -268,6 +285,18 @@ function parseBlocks(records: Pair[][], unsupported: Record<string, number>): Re
   return blocks;
 }
 
+function parseLayerTable(records: Pair[][]): DxfLayerInfo[] {
+  const layers: DxfLayerInfo[] = [];
+  for (const record of records) {
+    if (record[0].value.toUpperCase() !== 'LAYER') continue;
+    layers.push({
+      name: firstValue(record, 2, '0'),
+      colorIndex: Math.round(num(firstValue(record, 62, '7'))),
+    });
+  }
+  return layers;
+}
+
 /**
  * Parses an ASCII DXF file. Supports LINE, CIRCLE, ARC, LWPOLYLINE, POLYLINE,
  * SPLINE, ELLIPSE, and INSERT (block references). Other entity types are
@@ -284,6 +313,7 @@ export function parseDxf(text: string): DxfDocument {
   let insUnits = 0;
   let entities: DxfEntity[] = [];
   let blocks: Record<string, DxfBlock> = {};
+  let layers: DxfLayerInfo[] = [];
   let sawEntities = false;
 
   let i = 0;
@@ -298,6 +328,8 @@ export function parseDxf(text: string): DxfDocument {
       if (name === 'HEADER') {
         const idx = body.findIndex((p) => p.code === 9 && p.value.toUpperCase() === '$INSUNITS');
         if (idx >= 0 && idx + 1 < body.length && body[idx + 1].code === 70) insUnits = num(body[idx + 1].value);
+      } else if (name === 'TABLES') {
+        layers = parseLayerTable(splitRecords(body));
       } else if (name === 'BLOCKS') {
         blocks = parseBlocks(splitRecords(body), unsupported);
       } else if (name === 'ENTITIES') {
@@ -318,7 +350,7 @@ export function parseDxf(text: string): DxfDocument {
     );
   }
 
-  return { entities, blocks, insUnits, unsupported };
+  return { entities, blocks, insUnits, unsupported, layers };
 }
 
 /** Millimetres per drawing unit for a $INSUNITS value; unknown/unitless files are assumed to be in mm. */

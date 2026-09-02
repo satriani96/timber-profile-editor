@@ -1,4 +1,6 @@
 import paper from 'paper';
+import { PROFILE_LAYER } from '../canvas/layers';
+import { aciToHex } from '../exporters/aci';
 import { millimetresPerUnit, parseDxf, type DxfDocument, type DxfEntity, type DxfPoint, type DxfVertex } from './dxfParser';
 import { bsplineToSegments, clampedUniformKnots, knotsAreValid, sampleBSpline } from './splineConversion';
 import {
@@ -51,8 +53,16 @@ export function prepareDxfImport(text: string): PreparedImport {
       ? `File header says ${unitName} ($INSUNITS = ${doc.insUnits}).`
       : 'File header does not specify units; assuming millimetres.',
     unsupported: doc.unsupported,
+    layers: doc.layers.map((layer) => ({
+      name: mapImportedLayer(layer.name),
+      color: aciToHex(Math.abs(layer.colorIndex) || 7),
+    })),
     build,
   };
+}
+
+function mapImportedLayer(name: string): string {
+  return !name || name === '0' ? PROFILE_LAYER : name;
 }
 
 /** One-step import using the header's units (or a caller-supplied override). */
@@ -82,7 +92,7 @@ function buildEntities(
           skip(skipped, 'LINE (zero length)');
           break;
         }
-        commitPath(new paper.Path.Line({ from, to }), matrix, items);
+        commitPath(new paper.Path.Line({ from, to }), matrix, items, undefined, mapImportedLayer(entity.layer));
         break;
       }
       case 'CIRCLE': {
@@ -95,7 +105,7 @@ function buildEntities(
           center,
           radius: entity.radius,
           full: true,
-        });
+        }, mapImportedLayer(entity.layer));
         break;
       }
       case 'ARC': {
@@ -103,7 +113,7 @@ function buildEntities(
           skip(skipped, 'ARC (zero radius)');
           break;
         }
-        buildCircular(toPoint(entity.center), entity.radius, entity.startAngle, entity.endAngle, matrix, items);
+        buildCircular(toPoint(entity.center), entity.radius, entity.startAngle, entity.endAngle, matrix, items, mapImportedLayer(entity.layer));
         break;
       }
       case 'POLYLINE': {
@@ -112,7 +122,7 @@ function buildEntities(
           skip(skipped, 'POLYLINE (degenerate)');
           break;
         }
-        commitPath(path, matrix, items);
+        commitPath(path, matrix, items, undefined, mapImportedLayer(entity.layer));
         break;
       }
       case 'SPLINE': {
@@ -121,7 +131,7 @@ function buildEntities(
           skip(skipped, 'SPLINE (degenerate)');
           break;
         }
-        commitPath(path, matrix, items);
+        commitPath(path, matrix, items, undefined, mapImportedLayer(entity.layer));
         break;
       }
       case 'ELLIPSE': {
@@ -133,7 +143,7 @@ function buildEntities(
           break;
         }
         const toDeg = (rad: number) => (rad * 180) / Math.PI;
-        buildEllipticArc(toPoint(entity.center), a, b, major.angle, toDeg(entity.startParam), toDeg(entity.endParam), matrix, items);
+        buildEllipticArc(toPoint(entity.center), a, b, major.angle, toDeg(entity.startParam), toDeg(entity.endParam), matrix, items, mapImportedLayer(entity.layer));
         break;
       }
       case 'INSERT': {

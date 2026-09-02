@@ -201,7 +201,8 @@ export function createFilletTool(stateManager: StateManager) {
         radius: radiusValue,
         startAngle: normalizedStartAngle,
         endAngle: normalizedEndAngle,
-        sweepAngle: sweepAngle
+        sweepAngle: sweepAngle,
+        layer: line1.data?.layer,
       };
 
       // Trim the original lines to meet the new arc.

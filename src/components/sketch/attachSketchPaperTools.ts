@@ -109,7 +109,7 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         // Dragging a circle's quadrant resizes it instead of denting it.
         const radius = Math.max(1e-6, data.center.getDistance(target));
         adoptGeometry(path, new paper.Path.Circle({ center: data.center, radius, insert: false }));
-        path.data = { center: data.center, radius, isArc: false };
+        path.data = { center: data.center, radius, isArc: false, layer: data.layer };
       } else {
         // Arcs stay circular: a vertex drag moves the whole arc.
         movePath(path, event.delta);

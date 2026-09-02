@@ -1,6 +1,7 @@
 import paper from 'paper';
 import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
 import { arcDataFor } from '../canvas/geometry/pathCuts';
+import { applyItemLayerStyle, ensureLayer, getActiveLayerName, itemLayerName } from '../canvas/layers';
 
 export interface ImportSummary {
   imported: number;
@@ -25,6 +26,8 @@ export interface PreparedImport {
   unitsNote: string;
   /** Entity types the parser saw but does not understand. */
   unsupported: SkipCounter;
+  /** Layers discovered in the file (names already mapped, e.g. DXF "0" → Profile). */
+  layers?: { name: string; color: string }[];
   build: GeometryBuilder;
 }
 
@@ -51,6 +54,13 @@ export function commitImport(prepared: PreparedImport, mmPerUnit: number): Impor
   const items: paper.Path[] = [];
   const skipped: SkipCounter = { ...prepared.unsupported };
   prepared.build(importMatrix(mmPerUnit), items, skipped);
+  if (prepared.layers) {
+    for (const layer of prepared.layers) ensureLayer(layer.name, layer.color);
+  }
+  for (const item of items) {
+    ensureLayer(itemLayerName(item));
+    applyItemLayerStyle(item);
+  }
   return { imported: items.length, skipped, items };
 }
 
@@ -74,8 +84,10 @@ export function commitPath(
   path: paper.Path,
   matrix: paper.Matrix,
   items: paper.Path[],
-  circular?: { center: paper.Point; radius: number; full: boolean }
+  circular?: { center: paper.Point; radius: number; full: boolean },
+  layerName?: string
 ) {
+  const layer = layerName ?? getActiveLayerName();
   path.transform(matrix);
   if (circular) {
     const scaling = matrix.scaling;
@@ -83,14 +95,14 @@ export function commitPath(
     if (uniform) {
       const center = matrix.transform(circular.center);
       const radius = circular.radius * Math.abs(scaling.x);
-      path.data = circular.full ? { center, radius, isArc: false } : arcDataFor(path, center, radius);
+      path.data = circular.full ? { center, radius, isArc: false, layer } : { ...arcDataFor(path, center, radius), layer };
     } else {
-      path.data = {};
+      path.data = { layer };
     }
   } else if (path.data?.isSpline) {
-    path.data = { isSpline: true, fitPoints: path.segments.map((s) => s.point.clone()) };
+    path.data = { isSpline: true, fitPoints: path.segments.map((s) => s.point.clone()), layer };
   } else {
-    path.data = {};
+    path.data = { layer };
   }
   items.push(style(path));
 }
@@ -113,7 +125,8 @@ export function buildEllipticArc(
   startParam: number,
   endParam: number,
   matrix: paper.Matrix,
-  items: paper.Path[]
+  items: paper.Path[],
+  layerName?: string
 ) {
   let sweep = ((endParam - startParam) % 360 + 360) % 360;
   if (sweep === 0) sweep = 360;
@@ -126,7 +139,7 @@ export function buildEllipticArc(
           to: unitPoint(startParam + sweep),
         });
   local.transform(new paper.Matrix().translate(center).rotate(rotationDeg, new paper.Point(0, 0)).scale(a, b));
-  commitPath(local, matrix, items);
+  commitPath(local, matrix, items, undefined, layerName);
 }
 
 /** Circle or counter-clockwise arc (DXF angle convention) built in local coordinates. */
@@ -136,12 +149,13 @@ export function buildCircular(
   startAngle: number,
   endAngle: number,
   matrix: paper.Matrix,
-  items: paper.Path[]
+  items: paper.Path[],
+  layerName?: string
 ) {
   let sweep = ((endAngle - startAngle) % 360 + 360) % 360;
   if (sweep === 0) sweep = 360;
   if (sweep >= 360 - 1e-9) {
-    commitPath(new paper.Path.Circle({ center, radius }), matrix, items, { center, radius, full: true });
+    commitPath(new paper.Path.Circle({ center, radius }), matrix, items, { center, radius, full: true }, layerName);
     return;
   }
   const arc = new paper.Path.Arc({
@@ -149,5 +163,5 @@ export function buildCircular(
     through: pointOnCircle(center, radius, startAngle + sweep / 2),
     to: pointOnCircle(center, radius, startAngle + sweep),
   });
-  commitPath(arc, matrix, items, { center, radius, full: false });
+  commitPath(arc, matrix, items, { center, radius, full: false }, layerName);
 }

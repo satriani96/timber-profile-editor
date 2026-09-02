@@ -26,6 +26,7 @@ import ImageSideToolbar from './ImageSideToolbar';
 import ZoomLevelIndicator from './ZoomLevelIndicator';
 import StatusToast from './StatusToast';
 import ImportUnitsDialog from './ImportUnitsDialog';
+import LayersPanel from './LayersPanel';
 
 interface SketchCanvasProps {
   activeTool: SketchTool;
@@ -422,6 +423,7 @@ function SketchCanvas(
         onClick={() => fitSplineToolInstanceRef.current?.finishSpline()}
       />
       <NumericInputPanel {...numeric.panelProps} />
+      {paperReady && <LayersPanel history={history} />}
       <ImageSideToolbar
         key={imageVersion}
         hasImage={hasImage}
