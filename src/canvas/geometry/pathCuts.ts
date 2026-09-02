@@ -20,6 +20,38 @@ export function sketchPaths(project: paper.Project = paper.project): paper.Path[
   return project.activeLayer.children.filter(isSketchPath);
 }
 
+export interface SketchPathHit {
+  path: paper.Path;
+  location: paper.CurveLocation;
+}
+
+/**
+ * Nearest sketch path within `tolerance` of `point`. Uses curve distance rather
+ * than Paper's stroke hit-test, which misses points that fall exactly on a
+ * smooth segment (e.g. the quadrants of a circle) when joins are mitered.
+ */
+export function nearestSketchPath(
+  point: paper.Point,
+  tolerance: number,
+  exclude: paper.Path | null = null,
+  project: paper.Project = paper.project
+): SketchPathHit | null {
+  let best: SketchPathHit | null = null;
+  let bestDistance = tolerance;
+  for (const path of sketchPaths(project)) {
+    if (path === exclude) continue;
+    if (!path.bounds.expand(tolerance * 2).contains(point)) continue;
+    const location = path.getNearestLocation(point);
+    if (!location) continue;
+    const distance = location.point.getDistance(point);
+    if (distance <= bestDistance) {
+      bestDistance = distance;
+      best = { path, location };
+    }
+  }
+  return best;
+}
+
 function normalizeAngle(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }

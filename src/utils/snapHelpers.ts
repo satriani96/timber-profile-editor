@@ -21,6 +21,14 @@ export interface SnapConfig {
 
 const SNAP_COLOR = '#16a34a';
 const MARKER_SIZE_PX = 10;
+/** Lower wins when several snap kinds land on the same point. */
+const SNAP_PRIORITY: Record<SnapKind, number> = {
+  intersection: 0,
+  endpoint: 1,
+  midpoint: 2,
+  center: 3,
+  quadrant: 4,
+};
 
 function isFullCircle(path: paper.Path): boolean {
   return Boolean(path.closed && path.data?.center && path.data?.isArc === false);
@@ -57,7 +65,10 @@ export function findSnap(point: paper.Point, config: SnapConfig, pathToIgnore: p
   const state: { best: SnapResult | null; distance: number } = { best: null, distance: Infinity };
   const consider = (candidate: paper.Point, kind: SnapKind) => {
     const d = point.getDistance(candidate);
-    if (d < tolerance && d < state.distance) {
+    if (d >= tolerance) return;
+    const coincident = state.best && Math.abs(d - state.distance) < 1e-6;
+    const betterKind = coincident && SNAP_PRIORITY[kind] < SNAP_PRIORITY[state.best!.kind];
+    if (d < state.distance - 1e-6 || betterKind) {
       state.distance = d;
       state.best = { point: candidate, kind };
     }

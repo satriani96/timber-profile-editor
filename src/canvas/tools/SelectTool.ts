@@ -1,5 +1,5 @@
 import paper from 'paper';
-import { isSketchPath } from '../geometry/pathCuts';
+import { isSketchPath, nearestSketchPath } from '../geometry/pathCuts';
 import { movePath } from '../geometry/itemData';
 import { isPrimaryButton, isShiftHeld } from './drawingState';
 
@@ -67,9 +67,9 @@ export function createSelectTool(stateManager: StateManager) {
         return;
       }
 
-      const strokeHit = paper.project.hitTest(event.point, { stroke: true, tolerance, match: matchSketch });
-      if (strokeHit && strokeHit.item instanceof paper.Path) {
-        const path = strokeHit.item;
+      const strokeHit = nearestSketchPath(event.point, tolerance);
+      if (strokeHit) {
+        const path = strokeHit.path;
         if (additive) {
           path.selected = !path.selected;
         } else if (!path.selected) {

@@ -5,7 +5,7 @@ import {
   collectCutOffsets,
   cutInterval,
   findCutInterval,
-  isSketchPath,
+  nearestSketchPath,
   openClosedPathAt,
   type CutInterval,
 } from '../geometry/pathCuts';
@@ -54,18 +54,11 @@ function createCutTool(mode: CutMode, stateManager: StateManager) {
   }
 
   function locate(point: paper.Point): CutTarget | null {
-    const hit = paper.project.hitTest(point, {
-      stroke: true,
-      tolerance: HOVER_TOLERANCE_PX / paper.view.zoom,
-      match: (h: paper.HitResult) => isSketchPath(h.item),
-    });
-    if (!hit || !(hit.item instanceof paper.Path)) return null;
-    const path = hit.item;
-    const loc = path.getNearestLocation(point);
-    if (!loc) return null;
-    const cuts = collectCutOffsets(path);
-    const interval = findCutInterval(path, loc.offset, cuts);
-    return { path, interval, cuts };
+    const hit = nearestSketchPath(point, HOVER_TOLERANCE_PX / paper.view.zoom);
+    if (!hit) return null;
+    const cuts = collectCutOffsets(hit.path);
+    const interval = findCutInterval(hit.path, hit.location.offset, cuts);
+    return { path: hit.path, interval, cuts };
   }
 
   /** A closed path with a single cut can still be split: it is opened at that point. */
