@@ -9,7 +9,9 @@ import { createSplitTool, createTrimTool } from '../canvas/tools/CutTool';
 import { createDimensionTool } from '../canvas/tools/DimensionTool';
 import { createMoveTool } from '../canvas/tools/MoveTool';
 import { createRotateTool } from '../canvas/tools/RotateTool';
+import { createPasteTool } from '../canvas/tools/PasteTool';
 import { createSelectTool } from '../canvas/tools/SelectTool';
+import { collectPaperTools, useSketchClipboard } from './sketch/useSketchClipboard';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
@@ -161,6 +163,9 @@ function SketchCanvas(
   const rotateToolRef = useRef<paper.Tool | null>(null);
   const rotateToolInstanceRef = useRef<ReturnType<typeof createRotateTool> | null>(null);
   const isTransformingRef = useRef(false);
+  const pasteToolRef = useRef<paper.Tool | null>(null);
+  const pasteToolInstanceRef = useRef<ReturnType<typeof createPasteTool> | null>(null);
+  const isPastingRef = useRef(false);
   const previousToolRef = useRef<SketchTool>('select');
   const lastActivatedToolRef = useRef<SketchTool>('select');
   const draggedSegmentRef = useRef<paper.Segment | null>(null);
@@ -195,6 +200,36 @@ function SketchCanvas(
     rotateToolInstanceRef.current?.cancel();
     isTransformingRef.current = false;
   }, []);
+
+  const paperTools = () =>
+    collectPaperTools(
+      selectToolRef,
+      lineToolRef,
+      squareToolRef,
+      circleToolRef,
+      panToolRef,
+      filletToolRef,
+      fitSplineToolRef,
+      trimToolRef,
+      splitToolRef,
+      dimensionToolRef,
+      moveToolRef,
+      rotateToolRef,
+    );
+
+  const { restoreActiveTool, cancelPaste, copyCurrentSelection, cutCurrentSelection, beginPaste } = useSketchClipboard({
+    canvasRef,
+    history,
+    pasteToolRef,
+    pasteToolInstanceRef,
+    isPastingRef,
+    lastActivatedToolRef,
+    tools: paperTools,
+    cursors: TOOL_CURSORS,
+    cancelMarquee,
+    cancelTransform,
+    onHint: setStatusMessage,
+  });
 
   const finishCurrentSpline = useCallback(() => {
     currentSplineRef.current = null;
@@ -232,19 +267,21 @@ function SketchCanvas(
     cancelDimension();
     cancelMarquee();
     cancelTransform();
+    cancelPaste();
     finishCurrentFilletOperation();
     updateAllStrokeWidths();
     paper.view.update();
-  }, [cancelDimension, cancelMarquee, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
+  }, [cancelDimension, cancelMarquee, cancelPaste, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, resetNumericInput, updateAllStrokeWidths]);
 
   const runHistory = useCallback(
     (action: 'undo' | 'redo') => {
       if (isDrawingLineRef.current) cancelCurrentDrawing();
       if (currentSplineRef.current) cancelSpline();
       if (isTransformingRef.current) cancelTransform();
+      if (isPastingRef.current) cancelPaste();
       if (history[action]()) afterHistoryChange();
     },
-    [afterHistoryChange, cancelCurrentDrawing, cancelSpline, cancelTransform, history, isDrawingLineRef]
+    [afterHistoryChange, cancelCurrentDrawing, cancelPaste, cancelSpline, cancelTransform, history, isDrawingLineRef]
   );
 
   useSketchKeyboard({
@@ -267,6 +304,11 @@ function SketchCanvas(
     isMarqueeing: () => Boolean(selectToolInstanceRef.current?.isBusy()),
     cancelTransform,
     isTransforming: () => Boolean(moveToolInstanceRef.current?.isBusy() || rotateToolInstanceRef.current?.isBusy()),
+    cancelPaste,
+    isPasting: () => Boolean(pasteToolInstanceRef.current?.isBusy()),
+    beginPaste,
+    copySelection: copyCurrentSelection,
+    cutSelection: cutCurrentSelection,
   });
 
   // --- DXF import/export ---
@@ -379,6 +421,10 @@ function SketchCanvas(
       rotateToolRef,
       rotateToolInstanceRef,
       isTransformingRef,
+      pasteToolRef,
+      pasteToolInstanceRef,
+      isPastingRef,
+      restoreActiveTool,
       onHint: setStatusMessage,
     });
     // Refs and setters are stable; re-wiring only when Paper becomes ready.
@@ -400,25 +446,13 @@ function SketchCanvas(
       if (isDimensioningRef.current) cancelDimension();
       cancelMarquee();
       cancelTransform();
+      cancelPaste();
       finishCurrentFilletOperation();
     }
     clearTransientVisuals();
     lastActivatedToolRef.current = activeTool;
 
-    const tools: Record<SketchTool, MutableRefObject<paper.Tool | null>> = {
-      select: selectToolRef,
-      line: lineToolRef,
-      square: squareToolRef,
-      circle: circleToolRef,
-      pan: panToolRef,
-      fillet: filletToolRef,
-      fitspline: fitSplineToolRef,
-      trim: trimToolRef,
-      split: splitToolRef,
-      dimension: dimensionToolRef,
-      move: moveToolRef,
-      rotate: rotateToolRef,
-    };
+    const tools = paperTools();
     if (activeTool === 'fitspline') {
       isDrawingSplineRef.current = true;
       setIsSplineDrawing(false);
@@ -427,7 +461,7 @@ function SketchCanvas(
       isDrawingSplineRef.current = false;
     }
     tools[activeTool].current?.activate();
-  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelMarquee, cancelSpline, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
+  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelMarquee, cancelPaste, cancelSpline, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
 
   // --- Canvas mouse listeners: wheel zoom, right/middle-button pan, spline double-click ---
   useEffect(() => {

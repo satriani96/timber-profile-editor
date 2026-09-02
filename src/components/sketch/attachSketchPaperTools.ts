@@ -10,6 +10,7 @@ import { createSplitTool, createTrimTool } from '../../canvas/tools/CutTool';
 import { createDimensionTool } from '../../canvas/tools/DimensionTool';
 import { createMoveTool } from '../../canvas/tools/MoveTool';
 import { createRotateTool } from '../../canvas/tools/RotateTool';
+import { createPasteTool } from '../../canvas/tools/PasteTool';
 import { adoptGeometry, isPrimaryButton, type DrawingState } from '../../canvas/tools/drawingState';
 import { movePath, preserveMeta } from '../../canvas/geometry/itemData';
 import { getSnapPoint } from '../../utils/snapHelpers';
@@ -44,6 +45,10 @@ export interface SketchPaperToolsContext {
   rotateToolRef: MutableRefObject<paper.Tool | null>;
   rotateToolInstanceRef: MutableRefObject<ReturnType<typeof createRotateTool> | null>;
   isTransformingRef: MutableRefObject<boolean>;
+  pasteToolRef: MutableRefObject<paper.Tool | null>;
+  pasteToolInstanceRef: MutableRefObject<ReturnType<typeof createPasteTool> | null>;
+  isPastingRef: MutableRefObject<boolean>;
+  restoreActiveTool: () => void;
   onHint: (message: string | null) => void;
   currentSplineRef: MutableRefObject<paper.Path | null>;
   isDrawingSplineRef: MutableRefObject<boolean>;
@@ -100,7 +105,8 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
         !ctx.isDrawingLineRef.current &&
         !ctx.currentSplineRef.current &&
         !ctx.isDimensioningRef.current &&
-        !ctx.isTransformingRef.current
+        !ctx.isTransformingRef.current &&
+        !ctx.isPastingRef.current
       ) {
         ctx.history.checkpoint();
       }
@@ -286,4 +292,20 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   rotatePaperTool.onMouseDown = withCheckpoint(rotateTool.onMouseDown);
   rotatePaperTool.onMouseMove = rotateTool.onMouseMove;
   rotatePaperTool.onMouseDrag = rotateTool.onMouseDrag;
+
+  const pasteTool = createPasteTool({
+    isPanningRef: ctx.isPanningRef,
+    isSpacebarPanRef: ctx.isSpacebarPanRef,
+    isPastingRef: ctx.isPastingRef,
+    handleDragPan,
+    getSnapConfig: () => snapConfig,
+    history: ctx.history,
+    onHint: ctx.onHint,
+    onDone: ctx.restoreActiveTool,
+  });
+  ctx.pasteToolInstanceRef.current = pasteTool;
+  const pastePaperTool = ensureTool(ctx.pasteToolRef);
+  pastePaperTool.onMouseDown = pasteTool.onMouseDown;
+  pastePaperTool.onMouseMove = pasteTool.onMouseMove;
+  pastePaperTool.onMouseDrag = pasteTool.onMouseDrag;
 }

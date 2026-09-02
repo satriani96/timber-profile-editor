@@ -26,6 +26,11 @@ interface Args {
   isMarqueeing: () => boolean;
   cancelTransform: () => void;
   isTransforming: () => boolean;
+  cancelPaste: () => void;
+  isPasting: () => boolean;
+  beginPaste: () => void;
+  copySelection: () => void;
+  cutSelection: () => void;
 }
 
 const TOOL_SHORTCUTS: Record<string, SketchTool> = {
@@ -67,6 +72,11 @@ export function useSketchKeyboard({
   isMarqueeing,
   cancelTransform,
   isTransforming,
+  cancelPaste,
+  isPasting,
+  beginPaste,
+  copySelection,
+  cutSelection,
 }: Args) {
   useEffect(() => {
     const abortInProgressWork = () => {
@@ -91,6 +101,21 @@ export function useSketchKeyboard({
         if (history.redo()) afterHistoryChange();
         return;
       }
+      if (meta && key === 'c') {
+        event.preventDefault();
+        copySelection();
+        return;
+      }
+      if (meta && key === 'x') {
+        event.preventDefault();
+        cutSelection();
+        return;
+      }
+      if (meta && key === 'v') {
+        event.preventDefault();
+        beginPaste();
+        return;
+      }
       if (meta) return;
 
       switch (event.key) {
@@ -111,6 +136,10 @@ export function useSketchKeyboard({
         case 'Escape':
           if (isMarqueeing()) {
             cancelMarquee();
+            return;
+          }
+          if (isPasting()) {
+            cancelPaste();
             return;
           }
           if (isTransforming()) {
@@ -195,5 +224,10 @@ export function useSketchKeyboard({
     isMarqueeing,
     cancelTransform,
     isTransforming,
+    cancelPaste,
+    isPasting,
+    beginPaste,
+    copySelection,
+    cutSelection,
   ]);
 }
