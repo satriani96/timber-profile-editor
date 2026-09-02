@@ -8,8 +8,7 @@ interface StateManager {
   path2Ref: React.RefObject<paper.Path | null>;
   cornerPointRef: React.RefObject<paper.Point | null>;
   lastFilletRadiusRef: React.RefObject<number>;
-  setIsNumericInputActive: (visible: boolean) => void;
-  setNumericInputPosition: (position: { x: number; y: number }) => void;
+  openRadiusInput: (viewPosition: { x: number; y: number }) => void;
   finishCurrentFilletOperation: () => void;
   isSpacebarPanRef: React.MutableRefObject<boolean>;
 }
@@ -20,8 +19,7 @@ export function createFilletTool(stateManager: StateManager) {
     path2Ref,
     cornerPointRef,
     lastFilletRadiusRef,
-    setIsNumericInputActive,
-    setNumericInputPosition,
+    openRadiusInput,
     finishCurrentFilletOperation,
     isSpacebarPanRef,
   } = stateManager;
@@ -231,8 +229,14 @@ export function createFilletTool(stateManager: StateManager) {
 
     onMouseDown: (event: paper.ToolEvent) => {
       if (isSpacebarPanRef.current) return;
+      const native = (event as unknown as { event?: MouseEvent }).event;
+      if (native && native.button !== 0) return;
 
-      const hitResult = paper.project.hitTest(event.point, { segments: true, tolerance: 10 });
+      const hitResult = paper.project.hitTest(event.point, {
+        segments: true,
+        tolerance: 10 / paper.view.zoom,
+        match: (h: paper.HitResult) => !h.item.data?.isTemporary && !h.item.data?.isMeasurement,
+      });
       if (!hitResult || !hitResult.segment || !(hitResult.item instanceof paper.Path)) {
         return;
       }
@@ -262,8 +266,7 @@ export function createFilletTool(stateManager: StateManager) {
       }
 
       const viewPosition = paper.view.projectToView(cornerPoint);
-      setNumericInputPosition(viewPosition);
-      setIsNumericInputActive(true);
+      openRadiusInput({ x: viewPosition.x + 15, y: viewPosition.y - 15 });
     },
 
     onKeyDown: (event: paper.KeyEvent) => {

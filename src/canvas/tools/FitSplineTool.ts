@@ -36,7 +36,9 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
 
   // --- Drawing mode ---
   function onMouseDown(event: paper.ToolEvent) {
-    if (isSpacebarPanRef.current) return;
+    if (isSpacebarPanRef.current || isPanningRef.current) return;
+    const native = (event as unknown as { event?: MouseEvent }).event;
+    if (native && native.button !== 0) return;
 
     // --- Handle editing: check if user clicked a handle first ---
     if (isDrawingSplineRef.current && currentSplineRef.current) {
@@ -223,6 +225,10 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
       previewSegment.remove();
       previewSegment = null;
     }
+    if (currentSplineRef.current && currentSplineRef.current.segments.length < 2) {
+      cancelSpline();
+      return;
+    }
     if (currentSplineRef.current) {
       // Now smooth
       currentSplineRef.current.smooth({ type: 'catmull-rom', factor: 0.5 });
@@ -277,6 +283,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     onMouseUp,
     onKeyDown,
     finishSpline, // Expose for external calls (e.g. floating button, canvas dblclick)
+    cancelSpline,
     onActivate,
     onDeactivate,
   };

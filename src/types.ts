@@ -6,4 +6,5 @@ export type SketchTool =
   | 'pan'
   | 'fillet'
   | 'fitspline'
-  | 'trim';
+  | 'trim'
+  | 'split';

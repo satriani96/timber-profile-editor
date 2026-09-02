@@ -1,4 +1,7 @@
 import paper from 'paper';
+import { isSketchPath } from '../geometry/pathCuts';
+import { movePath } from '../geometry/itemData';
+import { isPrimaryButton, isShiftHeld } from './drawingState';
 
 interface StateManager {
   draggedSegmentRef: React.MutableRefObject<paper.Segment | null>;
@@ -8,99 +11,115 @@ interface StateManager {
   handleVertexDrag: (event: paper.ToolEvent) => void;
 }
 
-export function createSelectTool(_canvasRef: React.RefObject<HTMLCanvasElement | null>, stateManager: StateManager) {
-  const {
-    draggedSegmentRef,
-    isPanningRef,
-    isSpacebarPanRef,
-    handleDragPan,
-    handleVertexDrag
-  } = stateManager;
+interface SelectedHandle {
+  path: paper.Path;
+  segmentIndex: number;
+  handleType: 'in' | 'out';
+}
 
-  // Track selected spline handle for dragging
-  let selectedHandle: {
-    path: paper.Path,
-    segmentIndex: number,
-    handleType: 'in' | 'out'
-  } | null = null;
+/**
+ * Selection and direct manipulation: drag a vertex to edit it, drag a stroke to
+ * move the whole path (and every other selected path), Shift-click to add to
+ * the selection, drag spline handles to reshape curves.
+ */
+export function createSelectTool(stateManager: StateManager) {
+  const { draggedSegmentRef, isPanningRef, isSpacebarPanRef, handleDragPan, handleVertexDrag } = stateManager;
+
+  let selectedHandle: SelectedHandle | null = null;
+  let movingPaths: paper.Path[] = [];
+
+  const matchSketch = (h: paper.HitResult) => isSketchPath(h.item);
+
+  function selectedSketchPaths(): paper.Path[] {
+    return paper.project.selectedItems.filter(isSketchPath);
+  }
 
   return {
     onMouseDown: (event: paper.ToolEvent) => {
+      if (!isPrimaryButton(event) || isPanningRef.current || isSpacebarPanRef.current) return;
       draggedSegmentRef.current = null;
       selectedHandle = null;
-      // First, check if a spline handle was clicked
-      const tol = 10 / paper.view.zoom;
-      const hit = paper.project.hitTest(event.point, { segments: true, handles: true, tolerance: tol });
-      if (hit && hit.item && hit.item.data && hit.item.data.isSpline && hit.item instanceof paper.Path) {
-        // Check if a handle was clicked
-        if (hit.type === 'handle-in' || hit.type === 'handle-out') {
+      movingPaths = [];
+      const tolerance = 8 / paper.view.zoom;
+      const additive = isShiftHeld(event);
+
+      const handleHit = paper.project.hitTest(event.point, { handles: true, tolerance, match: matchSketch });
+      if (handleHit && handleHit.item instanceof paper.Path && handleHit.item.data?.isSpline) {
+        if (handleHit.type === 'handle-in' || handleHit.type === 'handle-out') {
           selectedHandle = {
-            path: hit.item,
-            segmentIndex: hit.segment.index,
-            handleType: hit.type === 'handle-in' ? 'in' : 'out'
+            path: handleHit.item,
+            segmentIndex: handleHit.segment.index,
+            handleType: handleHit.type === 'handle-in' ? 'in' : 'out',
           };
-          hit.item.fullySelected = true;
+          handleHit.item.fullySelected = true;
           return;
         }
       }
-      // Otherwise, proceed as before
-      const segmentHit = paper.project.hitTest(event.point, { segments: true, tolerance: 5 / paper.view.zoom });
-      if (segmentHit) {
+
+      const segmentHit = paper.project.hitTest(event.point, { segments: true, tolerance, match: matchSketch });
+      if (segmentHit && segmentHit.item instanceof paper.Path) {
         draggedSegmentRef.current = segmentHit.segment;
-        if (!segmentHit.item.selected) { 
-          paper.project.deselectAll(); 
-          segmentHit.item.selected = true; 
+        if (!segmentHit.item.selected) {
+          if (!additive) paper.project.deselectAll();
+          segmentHit.item.selected = true;
         }
-        // If this is a spline, show all Bezier handles
-        if (segmentHit.item.data && segmentHit.item.data.isSpline && segmentHit.item instanceof paper.Path) {
-          (segmentHit.item as paper.Path).fullySelected = true;
-        }
+        if (segmentHit.item.data?.isSpline) segmentHit.item.fullySelected = true;
         return;
       }
-      const pathHit = paper.project.hitTest(event.point, { stroke: true, tolerance: 5 / paper.view.zoom });
-      if (pathHit) { 
-        paper.project.deselectAll(); 
-        pathHit.item.selected = true; 
-        // If this is a spline, show all Bezier handles
-        if (pathHit.item.data && pathHit.item.data.isSpline && pathHit.item instanceof paper.Path) {
-          (pathHit.item as paper.Path).fullySelected = true;
+
+      const strokeHit = paper.project.hitTest(event.point, { stroke: true, tolerance, match: matchSketch });
+      if (strokeHit && strokeHit.item instanceof paper.Path) {
+        const path = strokeHit.item;
+        if (additive) {
+          path.selected = !path.selected;
+        } else if (!path.selected) {
+          paper.project.deselectAll();
+          path.selected = true;
         }
-      } else { 
-        paper.project.deselectAll(); 
+        if (path.data?.isSpline && path.selected) path.fullySelected = true;
+        movingPaths = path.selected ? selectedSketchPaths() : [];
+        return;
       }
+
+      if (!additive) paper.project.deselectAll();
     },
-    
-    onMouseDrag: (event: paper.ToolEvent) => { 
+
+    onMouseDrag: (event: paper.ToolEvent) => {
       if (isPanningRef.current || isSpacebarPanRef.current) {
         handleDragPan(event);
         return;
       }
-      // If a spline handle is being dragged, update it
       if (selectedHandle) {
         const { path, segmentIndex, handleType } = selectedHandle;
         const seg = path.segments[segmentIndex];
         const newHandle = event.point.subtract(seg.point);
         if (handleType === 'in') {
           seg.handleIn = newHandle;
-          seg.handleOut = new paper.Point(-newHandle.x, -newHandle.y);
+          seg.handleOut = newHandle.multiply(-1);
         } else {
           seg.handleOut = newHandle;
-          seg.handleIn = new paper.Point(-newHandle.x, -newHandle.y);
+          seg.handleIn = newHandle.multiply(-1);
         }
-        // Do NOT call .smooth() here; this would overwrite manual handle edits
         return;
       }
-      handleVertexDrag(event);
+      if (draggedSegmentRef.current) {
+        handleVertexDrag(event);
+        return;
+      }
+      if (movingPaths.length) {
+        for (const path of movingPaths) movePath(path, event.delta);
+      }
     },
-    
-    onMouseUp: () => { 
-      draggedSegmentRef.current = null; 
+
+    onMouseUp: () => {
+      draggedSegmentRef.current = null;
       selectedHandle = null;
+      movingPaths = [];
     },
-    
+
     onKeyDown: null,
     onKeyUp: null,
     onActivate: () => {},
-    onDeactivate: () => {}
+    onDeactivate: () => {},
   };
 }

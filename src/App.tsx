@@ -9,36 +9,25 @@ function App() {
   const exportDXFRef = useRef<() => void>(() => {});
   const sketchCanvasRef = useRef<SketchCanvasHandle | null>(null);
 
-  const handleExportDXF = () => {
-    exportDXFRef.current();
-  };
-
-  // Forward image upload to SketchCanvas
-  const handleUploadImage = (file: File) => {
-    sketchCanvasRef.current?.handleUploadImage(file);
-  };
-
   return (
     <div className="h-screen w-screen overflow-hidden bg-white font-sans">
       {/* Toolbar is absolutely positioned at the top, overlaying the canvas */}
       <div className="absolute top-0 left-0 w-full z-10">
-        <Toolbar 
-          activeTool={activeTool} 
-          setActiveTool={setActiveTool} 
-          exportDXF={handleExportDXF}
-          onUploadImage={handleUploadImage}
+        <Toolbar
+          activeTool={activeTool}
+          setActiveTool={setActiveTool}
+          exportDXF={() => exportDXFRef.current()}
+          onImportDXF={(file) => sketchCanvasRef.current?.handleImportDXF(file)}
+          onUploadImage={(file) => sketchCanvasRef.current?.handleUploadImage(file)}
+          onUndo={() => sketchCanvasRef.current?.undo()}
+          onRedo={() => sketchCanvasRef.current?.redo()}
         />
       </div>
 
       {/* Main content area fills the screen with no padding */}
       <div className="flex h-full">
         <div className="flex flex-col h-full w-full">
-          <SketchCanvas 
-            ref={sketchCanvasRef}
-            activeTool={activeTool} 
-            setActiveTool={setActiveTool} 
-            exportDXFRef={exportDXFRef}
-          />
+          <SketchCanvas ref={sketchCanvasRef} activeTool={activeTool} setActiveTool={setActiveTool} exportDXFRef={exportDXFRef} />
         </div>
       </div>
     </div>

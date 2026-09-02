@@ -2,29 +2,24 @@ import React from 'react';
 
 interface ZoomLevelIndicatorProps {
   zoom: number;
+  onZoomToFit: () => void;
 }
 
-const ZoomLevelIndicator: React.FC<ZoomLevelIndicatorProps> = ({ zoom }) => {
+const ZoomLevelIndicator: React.FC<ZoomLevelIndicatorProps> = ({ zoom, onZoomToFit }) => {
   return (
     <div
-      style={{
-        position: 'fixed',
-        right: 16,
-        bottom: 16,
-        zIndex: 100,
-        background: 'rgba(30,30,30,0.7)',
-        color: '#fff',
-        borderRadius: 8,
-        padding: '4px 12px',
-        fontSize: 14,
-        fontFamily: 'monospace',
-        pointerEvents: 'none',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-        userSelect: 'none',
-      }}
+      className="fixed right-4 bottom-4 z-[100] flex items-center gap-2 rounded-lg bg-gray-900/70 px-3 py-1 font-mono text-sm text-white shadow select-none"
       aria-label="Zoom Level"
     >
-      Zoom: {(zoom * 100).toFixed(0)}%
+      <span>Zoom: {(zoom * 100).toFixed(0)}%</span>
+      <button
+        type="button"
+        onClick={onZoomToFit}
+        title="Zoom to fit (Home)"
+        className="rounded px-1.5 py-0.5 text-xs font-sans hover:bg-white/20"
+      >
+        Fit
+      </button>
     </div>
   );
 };

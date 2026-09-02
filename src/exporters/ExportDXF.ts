@@ -1,19 +1,7 @@
-import { DxfWriter, point3d, point2d, LWPolylineFlags } from '@tarikjabiri/dxf';
+import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d } from '@tarikjabiri/dxf';
 import paper from 'paper';
-
-// Type definitions for Paper.js path metadata
-interface CircleData {
-  center: paper.Point;
-  radius: number;
-  isArc?: boolean;
-}
-
-interface ArcData extends CircleData {
-  isArc: true;
-  startAngle: number;
-  endAngle: number;
-  sweepAngle: number;
-}
+import { arcAngles } from '../canvas/geometry/pathCuts';
+import { pathToBezierSpline } from '../importers/splineConversion';
 
 interface FilletMeta {
   cornerIndex: number;
@@ -24,6 +12,154 @@ interface FilletMeta {
   radius: number;
   startAngle: number;
   endAngle: number;
+}
+
+/** Curve samples used when a curve is neither straight nor circular. */
+const FREEFORM_SAMPLES = 16;
+
+/**
+ * Serialises the sketch to DXF text. Coordinates are written exactly as they
+ * are in the drawing (Y down); the importer applies the same convention so a
+ * file round-trips without change.
+ */
+export function buildDxf(project: paper.Project = paper.project): string {
+  const dxf = new DxfWriter();
+  dxf.setUnits(Units.Millimeters);
+
+  for (const item of project.activeLayer.children) {
+    if (!(item instanceof paper.Path) || !item.visible) continue;
+    if (item.data?.isTemporary || item.data?.isMeasurement) continue;
+    if (item.segments.length < 2 || item.length <= 0) continue;
+    exportPath(item, dxf);
+  }
+  return dxf.stringify();
+}
+
+/** Builds the DXF and triggers a browser download. */
+export const exportToDXF = () => {
+  const blob = new Blob([buildDxf()], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'timber-profile.dxf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  requestAnimationFrame(() => URL.revokeObjectURL(url));
+};
+
+function dxfPoint(p: paper.Point) {
+  return point3d(p.x, p.y);
+}
+
+function exportPath(path: paper.Path, dxf: DxfWriter): void {
+  const data = (path.data ?? {}) as Record<string, unknown>;
+
+  if (Array.isArray(data.fillets) && data.fillets.length > 0 && path.closed) {
+    exportFilletedPolygon(path, data.fillets as FilletMeta[], dxf);
+    return;
+  }
+
+  const center = data.center;
+  const radius = data.radius;
+  if (center instanceof paper.Point && typeof radius === 'number' && radius > 0) {
+    if (path.closed && !data.isArc) {
+      dxf.addCircle(dxfPoint(center), radius);
+      return;
+    }
+    if (data.isArc && typeof data.startAngle === 'number' && typeof data.endAngle === 'number') {
+      let endAngle = data.endAngle;
+      if (endAngle <= data.startAngle) endAngle += 360;
+      dxf.addArc(dxfPoint(center), radius, data.startAngle, endAngle);
+      return;
+    }
+  }
+
+  if (data.isSpline && path.hasHandles()) {
+    exportSpline(path, dxf);
+    return;
+  }
+
+  if (path.curves.every((c) => c.isStraight())) {
+    const vertices = path.segments.map((s) => ({ point: point2d(s.point.x, s.point.y) }));
+    if (path.closed) {
+      dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed });
+    } else if (vertices.length === 2) {
+      dxf.addLine(dxfPoint(path.firstSegment.point), dxfPoint(path.lastSegment.point));
+    } else {
+      dxf.addLWPolyline(vertices);
+    }
+    return;
+  }
+
+  for (const curve of path.curves) exportCurve(curve, dxf);
+}
+
+/** Straight curves become lines, circular curves become arcs, anything else is sampled. */
+function exportCurve(curve: paper.Curve, dxf: DxfWriter): void {
+  if (curve.isStraight()) {
+    dxf.addLine(dxfPoint(curve.point1), dxfPoint(curve.point2));
+    return;
+  }
+  const arc = fitCircularArc(curve);
+  if (arc) {
+    let endAngle = arc.endAngle;
+    if (endAngle <= arc.startAngle) endAngle += 360;
+    dxf.addArc(dxfPoint(arc.center), arc.radius, arc.startAngle, endAngle);
+    return;
+  }
+  const vertices = [];
+  for (let i = 0; i <= FREEFORM_SAMPLES; i++) {
+    const p = curve.getPointAtTime(i / FREEFORM_SAMPLES);
+    vertices.push({ point: point2d(p.x, p.y) });
+  }
+  dxf.addLWPolyline(vertices);
+}
+
+/** Circle through three points, or null when they are (nearly) collinear. */
+function circumcenter(a: paper.Point, b: paper.Point, c: paper.Point): paper.Point | null {
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+  if (Math.abs(d) < 1e-9) return null;
+  const a2 = a.x * a.x + a.y * a.y;
+  const b2 = b.x * b.x + b.y * b.y;
+  const c2 = c.x * c.x + c.y * c.y;
+  return new paper.Point(
+    (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
+    (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d
+  );
+}
+
+/**
+ * Detects Bézier curves that approximate a circular arc (fillets, cut circles)
+ * so they can be written as true DXF arcs.
+ */
+export function fitCircularArc(curve: paper.Curve) {
+  const start = curve.point1;
+  const end = curve.point2;
+  const mid = curve.getPointAtTime(0.5);
+  const center = circumcenter(start, mid, end);
+  if (!center) return null;
+  const radius = center.getDistance(start);
+  if (radius <= 0) return null;
+  const tolerance = Math.max(0.005, radius * 0.002);
+  for (const t of [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]) {
+    if (Math.abs(center.getDistance(curve.getPointAtTime(t)) - radius) > tolerance) return null;
+  }
+  return { center, radius, ...arcAngles(center, start, mid, end) };
+}
+
+/** Writes the path's cubic Bézier curves as an exact degree-3 NURBS. */
+function exportSpline(path: paper.Path, dxf: DxfWriter): void {
+  const { controlPoints, knots } = pathToBezierSpline(path);
+  const fitPoints = path.segments.map((s) => point3d(s.point.x, s.point.y, 0));
+  if (path.closed) fitPoints.push(point3d(path.firstSegment.point.x, path.firstSegment.point.y, 0));
+  dxf.addSpline({
+    controlPoints: controlPoints.map((p) => point3d(p.x, p.y, 0)),
+    fitPoints,
+    knots,
+    degreeCurve: 3,
+    flags: SplineFlags.Planar | (path.closed ? SplineFlags.Closed : 0),
+  });
 }
 
 function resolveFilletCornerIndex(path: paper.Path, fillet: FilletMeta): number {
@@ -43,254 +179,47 @@ function resolveFilletCornerIndex(path: paper.Path, fillet: FilletMeta): number 
   return fillet.cornerIndex;
 }
 
-/**
- * Exports the current Paper.js canvas content to DXF format
- * and triggers a download of the resulting file
- */
-export const exportToDXF = () => {
-  const dxf = new DxfWriter();
+/** Closed polygon with fillet metadata: straight edges between tangent points plus true arcs. */
+function exportFilletedPolygon(path: paper.Path, fillets: FilletMeta[], dxf: DxfWriter): void {
+  const resolvedByFillet = fillets.map((f) => resolveFilletCornerIndex(path, f));
+  const filletCorners = new Set(resolvedByFillet);
 
-  // Process all paths in the active layer
-  paper.project.activeLayer.children.forEach((item) => {
-    // Skip temporary/debug paths like snap indicators or construction lines
-    if (item.data && item.data.isTemporary) {
-      return;
-    }
-
-    // Skip measurement annotations (dimension lines/labels are not part of the profile)
-    if (item.data && item.data.isMeasurement) {
-      return;
-    }
-    
-    if (item instanceof paper.Path) {
-      // Track if this item was processed
-      let processed = false;
-      
-      // Check for fillets array in closed shapes
-      if (item.data?.fillets && Array.isArray(item.data.fillets) && item.data.fillets.length > 0) {
-        const fillets = item.data.fillets as FilletMeta[];
-        const resolvedByFillet = fillets.map((f) => resolveFilletCornerIndex(item, f));
-        const filletCorners = new Set(resolvedByFillet);
-
-        const tangentPoints = new Map<number, { prev: paper.Point; next: paper.Point }>();
-        fillets.forEach((fillet, idx) => {
-          const cornerIdx = resolvedByFillet[idx];
-          tangentPoints.set(cornerIdx, {
-            prev: fillet.tangentPoint1,
-            next: fillet.tangentPoint2,
-          });
-        });
-
-        let exportPoints: paper.Point[] = [];
-        for (let i = 0; i < item.segments.length; i++) {
-          if (filletCorners.has(i) && tangentPoints.has(i)) {
-            const t1 = tangentPoints.get(i)!.prev;
-            const t2 = tangentPoints.get(i)!.next;
-            exportPoints.push(t1);
-            exportPoints.push(t2);
-          } else {
-            exportPoints.push(item.segments[i].point);
-          }
-        }
-        exportPoints = exportPoints.filter((pt, idx, arr) => idx === 0 || !pt.equals(arr[idx - 1]));
-        exportPoints = exportPoints.filter((pt, idx, arr) => arr.findIndex((p) => p.equals(pt)) === idx);
-        if (exportPoints.length > 1 && exportPoints[0].equals(exportPoints[exportPoints.length - 1])) {
-          exportPoints.pop();
-        }
-
-        for (let i = 0; i < exportPoints.length; i++) {
-          const p1 = exportPoints[i];
-          const p2 = exportPoints[(i + 1) % exportPoints.length];
-          let skipLine = false;
-          for (let fi = 0; fi < fillets.length; fi++) {
-            const cornerIdx = resolvedByFillet[fi];
-            const tangentPair = tangentPoints.get(cornerIdx);
-            if (tangentPair) {
-              if (
-                (p1.equals(tangentPair.prev) && p2.equals(tangentPair.next)) ||
-                (p1.equals(tangentPair.next) && p2.equals(tangentPair.prev))
-              ) {
-                skipLine = true;
-                break;
-              }
-            }
-          }
-          if (!skipLine) {
-            dxf.addLine(dxfPoint(p1.x, p1.y), dxfPoint(p2.x, p2.y));
-          }
-        }
-
-        fillets.forEach((fillet) => {
-          const startAngle = fillet.startAngle;
-          let endAngle = fillet.endAngle;
-          if (endAngle < startAngle) {
-            endAngle += 360;
-          }
-          dxf.addArc(dxfPoint(fillet.center.x, fillet.center.y), fillet.radius, startAngle, endAngle);
-        });
-
-        processed = true;
-      }
-      // Check for circle data first
-      else if (item.data?.center && item.data.radius !== undefined && !item.data.isArc) {
-        const circleCenter = item.data.center;
-        const radius = item.data.radius;
-        dxf.addCircle(dxfPoint(circleCenter.x, circleCenter.y), radius);
-      }
-      // Check for rectangle/square data
-      else if (item.segments && item.segments.length === 4 && isRectangle(item)) {
-        const vertices = item.segments.map((segment) => ({
-          point: point2d(segment.point.x, segment.point.y),
-        }));
-        dxf.addLWPolyline(vertices, { flags: LWPolylineFlags.Closed });
-      }
-      // CRITICAL: Check for arc data before assuming it's a straight line
-      else if (item.data?.isArc && item.data.center) {
-        if (item.data.startAngle !== undefined && item.data.endAngle !== undefined && item.data.radius) {
-          exportArc(item, dxf);
-          processed = true;
-        } else {
-          sampleAndExportCurve(item, dxf);
-          processed = true;
-        }
-      } 
-      // Check for a simple straight line (2 segments, no arc data)
-      else if (item.segments.length === 2 && !processed) {
-        // It's a straight line
-        const startPoint = item.segments[0].point;
-        const endPoint = item.segments[1].point;
-        dxf.addLine(dxfPoint(startPoint.x, startPoint.y), dxfPoint(endPoint.x, endPoint.y));
-        processed = true;
-      } 
-      // Handle curves and other complex paths that weren't processed by previous conditions
-      else if (!processed && item.segments.length > 1 && item.curves && item.curves.length > 0) {
-        // Check if this path is a Bézier spline (has non-zero handles)
-        const hasBezierHandles = item.segments.some(seg =>
-          (seg.handleIn && seg.handleIn.length > 0) || (seg.handleOut && seg.handleOut.length > 0)
-        );
-        if (hasBezierHandles) {
-          exportBezierSplineToDXF(item, dxf);
-          processed = true;
-        } else {
-          sampleAndExportCurve(item, dxf);
-          processed = true;
-        }
-      }
-    }
+  const tangentPoints = new Map<number, { prev: paper.Point; next: paper.Point }>();
+  fillets.forEach((fillet, idx) => {
+    tangentPoints.set(resolvedByFillet[idx], { prev: fillet.tangentPoint1, next: fillet.tangentPoint2 });
   });
 
-  const dxfString = dxf.stringify();
-
-  const blob = new Blob([dxfString], { type: 'application/dxf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'timber-profile.dxf';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  requestAnimationFrame(() => URL.revokeObjectURL(url));
-}
-
-/**
- * Point helper for coordinate system conversion
- * Paper.js has Y-down, but DXF typically expects Y-up
- */
-// Rectangle detection: checks for 4 segments and right angles
-function isRectangle(path: paper.Path): boolean {
-  if (path.segments.length !== 4) return false;
-  for (let i = 0; i < 4; i++) {
-    const p1 = path.segments[i].point;
-    const p2 = path.segments[(i + 1) % 4].point;
-    const p3 = path.segments[(i + 2) % 4].point;
-    const v1 = new paper.Point(p2.x - p1.x, p2.y - p1.y);
-    const v2 = new paper.Point(p3.x - p2.x, p3.y - p2.y);
-    const dotProduct = v1.x * v2.x + v1.y * v2.y;
-    if (Math.abs(dotProduct) > 0.01) {
-      return false;
+  let exportPoints: paper.Point[] = [];
+  for (let i = 0; i < path.segments.length; i++) {
+    const tangents = tangentPoints.get(i);
+    if (filletCorners.has(i) && tangents) {
+      exportPoints.push(tangents.prev, tangents.next);
+    } else {
+      exportPoints.push(path.segments[i].point);
     }
   }
-  return true;
-}
-
-function dxfPoint(x: number, y: number) {
-  return point3d(x, y); // No inversion needed for our specific use case
-}
-
-/**
- * Exports an arc to DXF format with proper angle calculations
- */
-function exportArc(path: paper.Path, dxf: DxfWriter): void {
-  // We can safely assert these properties exist because this function is only
-  // called after checking their existence
-  const arcData = path.data as ArcData;
-  const arcCenter = arcData.center;
-  const radius = arcData.radius;
-  
-  // Get the angles directly from data (they're already in degrees)
-  const startAngleDeg = arcData.startAngle;
-  let endAngleDeg = arcData.endAngle;
-  
-  // For fillet arcs, we've already calculated the correct angles in the fillet tool
-  // so we can use them directly without recalculating
-  
-  // Ensure end angle is greater than start angle for DXF
-  if (endAngleDeg < startAngleDeg) {
-    endAngleDeg += 360;
-  }
-  
-  // Export the arc with the angles from the metadata
-  dxf.addArc(point3d(arcCenter.x, arcCenter.y), radius, startAngleDeg, endAngleDeg);
-}
-
-/**
- * Helper function to export a Paper.js Bézier spline as a true DXF spline entity
- */
-function exportBezierSplineToDXF(path: paper.Path, dxf: DxfWriter): void {
-  // Collect control points from Paper.js path segments
-  // DXF expects control points in 3D as {x, y, z}
-  const controlPoints = path.segments.map(seg => {
-    return point3d(seg.point.x, seg.point.y, 0);
-  });
-
-  // Optionally, collect fit points if available (for fit-point splines)
-  let fitPoints: ReturnType<typeof point3d>[] | undefined = undefined;
-  if (Array.isArray(path.data?.fitPoints)) {
-    fitPoints = path.data.fitPoints.map((pt: paper.Point) => point3d(pt.x, pt.y, 0));
+  exportPoints = exportPoints.filter((pt, idx, arr) => idx === 0 || !pt.equals(arr[idx - 1]));
+  exportPoints = exportPoints.filter((pt, idx, arr) => arr.findIndex((p) => p.equals(pt)) === idx);
+  if (exportPoints.length > 1 && exportPoints[0].equals(exportPoints[exportPoints.length - 1])) {
+    exportPoints.pop();
   }
 
-  // Degree: 3 for cubic Bézier
-  const degreeCurve = 3;
-
-  // Spline flags: closed if path.closed
-  let flags = 0;
-  if (path.closed) {
-    flags |= 1; // SplineFlags.Closed
+  for (let i = 0; i < exportPoints.length; i++) {
+    const p1 = exportPoints[i];
+    const p2 = exportPoints[(i + 1) % exportPoints.length];
+    const isArcChord = fillets.some((_, fi) => {
+      const pair = tangentPoints.get(resolvedByFillet[fi]);
+      return (
+        pair &&
+        ((p1.equals(pair.prev) && p2.equals(pair.next)) || (p1.equals(pair.next) && p2.equals(pair.prev)))
+      );
+    });
+    if (!isArcChord) dxf.addLine(dxfPoint(p1), dxfPoint(p2));
   }
 
-  // Weights and knots are optional; let DXF handle default interpolation
-  dxf.addSpline({
-    controlPoints,
-    fitPoints,
-    degreeCurve,
-    flags
-  });
-}
-
-/**
- * Helper function to sample points along a curve and export as line segments
- * Used as a fallback when a path can't be exported as a geometric primitive
- */
-function sampleAndExportCurve(path: paper.Path, dxf: DxfWriter): void {
-  const samples = 24;  // More samples for smoother approximation
-  const pathLength = path.length;
-  for (let i = 0; i < samples; i++) {
-    const t1 = i / samples;
-    const t2 = (i + 1) / samples;
-    const p1 = path.getPointAt(pathLength * t1);
-    const p2 = path.getPointAt(pathLength * t2);
-    if (p1 && p2) {
-      dxf.addLine(dxfPoint(p1.x, p1.y), dxfPoint(p2.x, p2.y));
-    }
+  for (const fillet of fillets) {
+    let endAngle = fillet.endAngle;
+    if (endAngle < fillet.startAngle) endAngle += 360;
+    dxf.addArc(dxfPoint(fillet.center), fillet.radius, fillet.startAngle, endAngle);
   }
 }

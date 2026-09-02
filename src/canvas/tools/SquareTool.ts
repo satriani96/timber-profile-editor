@@ -1,115 +1,77 @@
 import paper from 'paper';
+import { adoptGeometry, isPrimaryButton, sketchStrokeColor, sketchStrokeWidth, type DrawingState } from './drawingState';
 
-interface StateManager {
-  currentPathRef: React.MutableRefObject<paper.Path | null>;
-  isDrawingLineRef: React.MutableRefObject<boolean>;
-  snapIndicatorRef: React.MutableRefObject<paper.Path.Circle | null>;
-  finishCurrentDrawing: () => void;
-  resetNumericInput: () => void;
-  getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
-  isPanningRef: React.MutableRefObject<boolean>;
-  isSpacebarPanRef: React.MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
-}
-
-export function createSquareTool(_canvasRef: React.RefObject<HTMLCanvasElement | null>, stateManager: StateManager) {
+/** Two-corner rectangle: click one corner, then click (or type W/H) for the opposite corner. */
+export function createSquareTool(stateManager: DrawingState) {
   const {
     currentPathRef,
     isDrawingLineRef,
-    snapIndicatorRef,
     finishCurrentDrawing,
     resetNumericInput,
     getSnapPoint,
     isPanningRef,
     isSpacebarPanRef,
-    handleDragPan
+    handleDragPan,
   } = stateManager;
+
+  function setCorner(path: paper.Path, start: paper.Point, end: paper.Point) {
+    adoptGeometry(path, new paper.Path.Rectangle({ from: start, to: end, insert: false }));
+    path.data = {
+      isRect: true,
+      startPoint: start,
+      endPoint: end,
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+    };
+  }
 
   return {
     onMouseDown: (event: paper.ToolEvent) => {
-      // Case 1: If we're already drawing, complete the rectangle with second click
+      if (!isPrimaryButton(event) || isPanningRef.current || isSpacebarPanRef.current) return;
+
       if (isDrawingLineRef.current && currentPathRef.current) {
-        const snapPoint = getSnapPoint(event.point);
-        const endPoint = snapPoint || event.point;
-        const startPoint = currentPathRef.current.data.startPoint;
-        
-        // Replace the rectangle with final coordinates
-        currentPathRef.current.remove();
-        currentPathRef.current = new paper.Path.Rectangle({
-          from: startPoint,
-          to: endPoint,
-          strokeColor: new paper.Color('black'),
-          strokeWidth: 2,
-        });
-        
-        // Store metadata for DXF export
-        currentPathRef.current.data = {
-          isRect: true,
-          width: Math.abs(endPoint.x - startPoint.x),
-          height: Math.abs(endPoint.y - startPoint.y),
-          startPoint: startPoint,
-          endPoint: endPoint
-        };
-        
+        const path = currentPathRef.current;
+        const start = path.data.startPoint as paper.Point;
+        const end = getSnapPoint(event.point, path) ?? event.point;
+        if (Math.abs(end.x - start.x) < 1e-6 || Math.abs(end.y - start.y) < 1e-6) return;
+        setCorner(path, start, end);
         finishCurrentDrawing();
         return;
       }
-      
-      // Case 2: Start drawing a new rectangle with first click
+
       finishCurrentDrawing();
       resetNumericInput();
-      const snapPoint = getSnapPoint(event.point);
-      const startPoint = snapPoint || event.point;
-      
-      // Create initial rectangle (zero size)
-      currentPathRef.current = new paper.Path.Rectangle({
-        from: startPoint,
-        to: startPoint,
-        strokeColor: new paper.Color('black'),
-        strokeWidth: 2,
+      const start = getSnapPoint(event.point) ?? event.point;
+      const path = new paper.Path.Rectangle({
+        from: start,
+        to: start.add([1e-6, 1e-6]),
+        strokeColor: sketchStrokeColor(),
+        strokeWidth: sketchStrokeWidth(),
       });
-      
-      // Store the start point for reference
-      currentPathRef.current.data = { startPoint: startPoint };
-      
+      path.data = { isRect: true, startPoint: start, endPoint: start, width: 0, height: 0 };
+      currentPathRef.current = path;
       isDrawingLineRef.current = true;
     },
-    
+
     onMouseMove: (event: paper.ToolEvent) => {
-      // Update snap indicator
-      const snapPoint = getSnapPoint(event.point);
-      if (snapIndicatorRef.current) {
-        snapIndicatorRef.current.position = snapPoint || event.point;
-        snapIndicatorRef.current.visible = snapPoint !== null;
-      }
-      
-      // Update rectangle preview as mouse moves
-      if (isDrawingLineRef.current && currentPathRef.current) {
-        const startPoint = currentPathRef.current.data.startPoint;
-        const newPoint = snapPoint || event.point;
-        
-        // Replace with updated rectangle
-        currentPathRef.current.remove();
-        currentPathRef.current = new paper.Path.Rectangle({
-          from: startPoint,
-          to: newPoint,
-          strokeColor: new paper.Color('black'),
-          strokeWidth: 2,
-        });
-        
-        // Preserve the start point in data
-        currentPathRef.current.data = { startPoint: startPoint };
+      const path = currentPathRef.current;
+      if (isDrawingLineRef.current && path) {
+        const start = path.data.startPoint as paper.Point;
+        const snapPoint = getSnapPoint(event.point, path);
+        setCorner(path, start, snapPoint ?? event.point);
+      } else {
+        getSnapPoint(event.point);
       }
     },
-    
-    onMouseDrag: (event: paper.ToolEvent) => { 
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event); 
+
+    onMouseDrag: (event: paper.ToolEvent) => {
+      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
-    
+
     onMouseUp: () => {},
     onKeyDown: null,
     onKeyUp: null,
     onActivate: () => {},
-    onDeactivate: () => {}
+    onDeactivate: () => {},
   };
 }

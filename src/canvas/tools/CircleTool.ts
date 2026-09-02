@@ -1,121 +1,72 @@
 import paper from 'paper';
+import { adoptGeometry, isPrimaryButton, sketchStrokeColor, sketchStrokeWidth, type DrawingState } from './drawingState';
 
-interface StateManager {
-  currentPathRef: React.MutableRefObject<paper.Path | null>;
-  isDrawingLineRef: React.MutableRefObject<boolean>;
-  snapIndicatorRef: React.MutableRefObject<paper.Path.Circle | null>;
-  finishCurrentDrawing: () => void;
-  resetNumericInput: () => void;
-  getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
-  isPanningRef: React.MutableRefObject<boolean>;
-  isSpacebarPanRef: React.MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
-}
-
-export function createCircleTool(_canvasRef: React.RefObject<HTMLCanvasElement | null>, stateManager: StateManager) {
+/** Center-radius circle: click the center, then click (or type a diameter) for the radius. */
+export function createCircleTool(stateManager: DrawingState) {
   const {
     currentPathRef,
     isDrawingLineRef,
-    snapIndicatorRef,
     finishCurrentDrawing,
     resetNumericInput,
     getSnapPoint,
     isPanningRef,
     isSpacebarPanRef,
-    handleDragPan
+    handleDragPan,
   } = stateManager;
+
+  function setRadius(path: paper.Path, center: paper.Point, radius: number) {
+    adoptGeometry(path, new paper.Path.Circle({ center, radius: Math.max(radius, 1e-6), insert: false }));
+    path.data = { center, radius, isArc: false };
+  }
 
   return {
     onMouseDown: (event: paper.ToolEvent) => {
-      // Case 1: If we're already drawing, complete the circle with second click
+      if (!isPrimaryButton(event) || isPanningRef.current || isSpacebarPanRef.current) return;
+
       if (isDrawingLineRef.current && currentPathRef.current) {
-        const snapPoint = getSnapPoint(event.point);
-        const endPoint = snapPoint || event.point;
-        const center = currentPathRef.current.data.center;
+        const path = currentPathRef.current;
+        const center = path.data.center as paper.Point;
+        const endPoint = getSnapPoint(event.point, path) ?? event.point;
         const radius = center.getDistance(endPoint);
-        
-        // Replace with final circle
-        currentPathRef.current.remove();
-        currentPathRef.current = new paper.Path.Circle({
-          center: center,
-          radius: radius,
-          strokeColor: new paper.Color('black'),
-          strokeWidth: 2,
-        });
-        
-        // Store metadata for DXF export
-        currentPathRef.current.data = { 
-          center: center,
-          radius: radius,
-          isArc: false // Full circle, not an arc
-        };
-        
+        if (radius <= 1e-6) return;
+        setRadius(path, center, radius);
         finishCurrentDrawing();
         return;
       }
-      
-      // Case 2: Start drawing a new circle with first click (center point)
+
       finishCurrentDrawing();
       resetNumericInput();
-      const snapPoint = getSnapPoint(event.point);
-      const centerPoint = snapPoint || event.point;
-      
-      // Create initial circle (zero radius)
-      currentPathRef.current = new paper.Path.Circle({
-        center: centerPoint,
-        radius: 0,
-        strokeColor: new paper.Color('black'),
-        strokeWidth: 2,
+      const center = getSnapPoint(event.point) ?? event.point;
+      const path = new paper.Path.Circle({
+        center,
+        radius: 1e-6,
+        strokeColor: sketchStrokeColor(),
+        strokeWidth: sketchStrokeWidth(),
       });
-      
-      // Store the center point for reference
-      currentPathRef.current.data = { 
-        center: centerPoint,
-        isArc: false // Full circle, not an arc
-      };
-      
+      path.data = { center, radius: 0, isArc: false };
+      currentPathRef.current = path;
       isDrawingLineRef.current = true;
     },
-    
+
     onMouseMove: (event: paper.ToolEvent) => {
-      // Update snap indicator
-      const snapPoint = getSnapPoint(event.point);
-      if (snapIndicatorRef.current) {
-        snapIndicatorRef.current.position = snapPoint || event.point;
-        snapIndicatorRef.current.visible = snapPoint !== null;
-      }
-      
-      // Update circle preview as mouse moves
-      if (isDrawingLineRef.current && currentPathRef.current) {
-        const center = currentPathRef.current.data.center;
-        const newPoint = snapPoint || event.point;
-        const radius = center.getDistance(newPoint);
-        
-        // Replace with updated circle
-        currentPathRef.current.remove();
-        currentPathRef.current = new paper.Path.Circle({
-          center: center,
-          radius: radius,
-          strokeColor: new paper.Color('black'),
-          strokeWidth: 2,
-        });
-        
-        // Preserve the center point in data
-        currentPathRef.current.data = { 
-          center: center,
-          isArc: false // Full circle, not an arc
-        };
+      const path = currentPathRef.current;
+      if (isDrawingLineRef.current && path) {
+        const center = path.data.center as paper.Point;
+        const snapPoint = getSnapPoint(event.point, path);
+        setRadius(path, center, center.getDistance(snapPoint ?? event.point));
+      } else {
+        getSnapPoint(event.point);
       }
     },
-    
-    onMouseDrag: (event: paper.ToolEvent) => { 
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event); 
+
+    onMouseDrag: (event: paper.ToolEvent) => {
+      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
-    
+
     onMouseUp: () => {},
     onKeyDown: null,
-    onKeyUp: null, 
+    onKeyUp: null,
     onActivate: () => {},
-    onDeactivate: () => {}
+    onDeactivate: () => {},
   };
 }
