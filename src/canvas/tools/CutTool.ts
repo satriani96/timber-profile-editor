@@ -73,11 +73,12 @@ function createCutTool(mode: CutMode, stateManager: StateManager) {
 
   function showHighlight(target: CutTarget) {
     const { path, interval } = target;
-    const key = `${path.id}:${interval.from.toFixed(4)}:${interval.to.toFixed(4)}:${interval.whole}`;
+    const zoom = paper.view.zoom;
+    // Preview stroke and markers are sized in screen pixels, so the zoom is part of the identity.
+    const key = `${path.id}:${interval.from.toFixed(4)}:${interval.to.toFixed(4)}:${interval.whole}:${zoom}`;
     if (key === highlightKey && highlight && highlight.isInserted()) return;
     clearHighlight();
 
-    const zoom = paper.view.zoom;
     const clone = path.clone({ insert: true }) as paper.Path;
     clone.data = { ...clone.data, isTemporary: true };
     let piece = clone;

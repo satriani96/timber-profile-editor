@@ -157,17 +157,23 @@ function buildMarker(kind: SnapKind, center: paper.Point): paper.Item {
       ]);
       break;
   }
-  marker.data = { isTemporary: true, snapKind: kind };
+  marker.data = { isTemporary: true, snapKind: kind, builtAtZoom: zoom };
   return marker;
 }
 
+/** Markers are sized in screen pixels, so a marker built at another zoom must be rebuilt. */
 export function updateSnapIndicator(snap: SnapResult | null, snapIndicatorRef: MutableRefObject<paper.Item | null>): void {
   const current = snapIndicatorRef.current;
   if (!snap) {
     if (current) current.visible = false;
     return;
   }
-  if (!current || current.data?.snapKind !== snap.kind || !current.isInserted()) {
+  const stale =
+    !current ||
+    !current.isInserted() ||
+    current.data?.snapKind !== snap.kind ||
+    current.data?.builtAtZoom !== paper.view.zoom;
+  if (stale) {
     current?.remove();
     snapIndicatorRef.current = buildMarker(snap.kind, snap.point);
   } else {

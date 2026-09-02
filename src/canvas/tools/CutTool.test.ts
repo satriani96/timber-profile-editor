@@ -120,4 +120,22 @@ describe('snap markers', () => {
     expect(findSnap(new paper.Point(700, 500), config)).toBeNull();
     expect(snapIndicatorRef.current?.visible).toBe(false);
   });
+
+  it('keeps markers a constant on-screen size across zoom levels', () => {
+    circleAndLine();
+    const snapIndicatorRef = { current: null as paper.Item | null };
+    const config = { snapTolerancePx: 10, currentPathRef: { current: null }, snapIndicatorRef };
+
+    paper.view.zoom = 1;
+    expect(findSnap(new paper.Point(600, 300), config)?.kind).toBe('endpoint');
+    const sizeAt1 = snapIndicatorRef.current!.bounds.width;
+
+    paper.view.zoom = 4;
+    expect(findSnap(new paper.Point(600, 300), config)?.kind).toBe('endpoint');
+    const sizeAt4 = snapIndicatorRef.current!.bounds.width;
+
+    // Project-space size shrinks by the zoom factor so the screen size stays put.
+    expect(sizeAt4 * 4).toBeCloseTo(sizeAt1, 9);
+    expect(sizeAt1).toBeCloseTo(12, 6); // 12 px marker at zoom 1 (bounds exclude the stroke)
+  });
 });

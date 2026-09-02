@@ -384,19 +384,25 @@ function SketchCanvas(
       fitSplineToolInstanceRef.current?.finishSpline();
     };
 
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    const onWheel = (e: WheelEvent) => {
+      handleWheel(e);
+      // Snap markers and cut previews are sized in screen pixels; drop them until the next mouse move rebuilds them.
+      clearTransientVisuals();
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('dblclick', onDblClick);
     return () => {
-      canvas.removeEventListener('wheel', handleWheel);
+      canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('dblclick', onDblClick);
     };
-  }, [activeTool, handleWheel]);
+  }, [activeTool, handleWheel, clearTransientVisuals]);
 
   return (
     <div className="w-full h-full relative">
