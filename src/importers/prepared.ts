@@ -87,10 +87,46 @@ export function commitPath(
     } else {
       path.data = {};
     }
-  } else if (!path.data?.isSpline) {
+  } else if (path.data?.isSpline) {
+    path.data = { isSpline: true, fitPoints: path.segments.map((s) => s.point.clone()) };
+  } else {
     path.data = {};
   }
   items.push(style(path));
+}
+
+/** Unit-circle point at a parameter angle (degrees). */
+export function unitPoint(angleDeg: number): paper.Point {
+  const rad = (angleDeg * Math.PI) / 180;
+  return new paper.Point(Math.cos(rad), Math.sin(rad));
+}
+
+/**
+ * Elliptical arc: a unit-circle arc mapped through translate·rotate·scale so
+ * Paper's Bézier arc approximation carries over exactly.
+ */
+export function buildEllipticArc(
+  center: paper.Point,
+  a: number,
+  b: number,
+  rotationDeg: number,
+  startParam: number,
+  endParam: number,
+  matrix: paper.Matrix,
+  items: paper.Path[]
+) {
+  let sweep = ((endParam - startParam) % 360 + 360) % 360;
+  if (sweep === 0) sweep = 360;
+  const local =
+    sweep >= 360 - 1e-9
+      ? new paper.Path.Circle({ center: [0, 0], radius: 1 })
+      : new paper.Path.Arc({
+          from: unitPoint(startParam),
+          through: unitPoint(startParam + sweep / 2),
+          to: unitPoint(startParam + sweep),
+        });
+  local.transform(new paper.Matrix().translate(center).rotate(rotationDeg, new paper.Point(0, 0)).scale(a, b));
+  commitPath(local, matrix, items);
 }
 
 /** Circle or counter-clockwise arc (DXF angle convention) built in local coordinates. */

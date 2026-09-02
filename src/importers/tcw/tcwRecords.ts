@@ -2,8 +2,10 @@
  * Low-level access to TurboCAD's Graphics/ModelSpace stream. The stream is a
  * sequence of tagged records; the tags that matter for geometry are:
  *   35 00 <u32>            entity id (record anchor)
+ *   05 01                  start of a vertex
+ *   06 01 <u16>            vertex flags (bit 0 set: straight/arc vertex; clear: spline vertex)
+ *   36 00 <u32>            vertex id
  *   54 00 <f64 x> <f64 y>  2-D point
- *   36 00 <u32>            vertex id, precedes each vertex point
  *   "CMD_xxx@"             ASCII name of the tool that created the entity
  * Everything else (property trees, styles) is skipped.
  */
@@ -11,6 +13,8 @@
 export interface TcwRecord {
   id: number;
   points: [number, number][];
+  /** Vertex flag words in order of appearance (may be shorter than `points`). */
+  vertexFlags: number[];
   /** True when the points were preceded by vertex ids (reference points excluded). */
   indexed: boolean;
   tools: string[];
@@ -52,6 +56,7 @@ export function splitRecords(bytes: Uint8Array): TcwRecord[] {
 function tokenize(b: Uint8Array, view: DataView, start: number, end: number) {
   const before: [number, number][] = [];
   const after: [number, number][] = [];
+  const vertexFlags: number[] = [];
   let seenVertexId = false;
   let i = start;
   while (i + 1 < end) {
@@ -70,10 +75,16 @@ function tokenize(b: Uint8Array, view: DataView, start: number, end: number) {
       i += 6;
       continue;
     }
+    if (tag === 0x105 && i + 6 <= end && b[i + 2] === 0x06 && b[i + 3] === 0x01) {
+      vertexFlags.push(view.getUint16(i + 4, true));
+      i += 6;
+      continue;
+    }
     i++;
   }
   return {
     points: after.length ? after : before,
+    vertexFlags,
     indexed: after.length > 0,
     tools: findToolNames(b, start, end),
   };

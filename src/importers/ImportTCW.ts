@@ -4,6 +4,7 @@ import { inflateIfNeeded, splitRecords } from './tcw/tcwRecords';
 import { classifyRecord, type TcwEntity } from './tcw/tcwGeometry';
 import {
   buildCircular,
+  buildEllipticArc,
   commitImport,
   commitPath,
   measureBuilder,
@@ -25,8 +26,9 @@ export interface TcwDocument {
 /**
  * Reads a TurboCAD .tcw drawing: an OLE compound file whose
  * Graphics/ModelSpace stream (gzip-compressed in older versions) holds the
- * model-space entities. Only 2-D lines, polylines, circles, and arcs are
- * imported; dimensions, text, and anything unrecognised are counted.
+ * model-space entities. 2-D lines, polylines, splines, circles, arcs, and
+ * elliptical arcs are imported; dimensions, text, and anything unrecognised
+ * are counted.
  */
 export async function parseTcw(buffer: ArrayBuffer): Promise<TcwDocument> {
   let streams: Map<string, Uint8Array>;
@@ -65,11 +67,31 @@ function buildTcwEntities(entities: TcwEntity[], matrix: paper.Matrix, items: pa
         commitPath(path, matrix, items);
         break;
       }
+      case 'spline': {
+        // TurboCAD stores fit points only; interpolate them with a C2 cubic spline.
+        const path = new paper.Path({ segments: entity.points });
+        path.smooth({ type: 'continuous' });
+        path.data = { isSpline: true };
+        commitPath(path, matrix, items);
+        break;
+      }
       case 'circle':
         buildCircular(new paper.Point(entity.center), entity.radius, 0, 360, matrix, items);
         break;
       case 'arc':
         buildCircular(new paper.Point(entity.center), entity.radius, entity.startAngle, entity.endAngle, matrix, items);
+        break;
+      case 'ellipticArc':
+        buildEllipticArc(
+          new paper.Point(entity.center),
+          entity.a,
+          entity.b,
+          entity.rotation,
+          entity.startParam,
+          entity.endParam,
+          matrix,
+          items
+        );
         break;
     }
   }

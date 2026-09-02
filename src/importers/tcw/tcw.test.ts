@@ -113,6 +113,7 @@ describe('TurboCAD model space decoding', () => {
     const result = classifyRecord({
       id: 1,
       indexed: false,
+      vertexFlags: [0xf3],
       tools: ['CMD_LINE@'],
       points: [
         [5, 5],
@@ -121,6 +122,67 @@ describe('TurboCAD model space decoding', () => {
       ],
     });
     expect(result).toEqual({ entity: { type: 'polyline', points: [[0, 0], [10, 10]], closed: false } });
+  });
+});
+
+describe('TurboCAD splines and elliptical arcs', () => {
+  const C375 = '65x15-c375-spline-ellipse-tc2017.tcw';
+
+  it('reads the C375 cove as a fit-point spline joined to an elliptical arc', async () => {
+    const doc = await parseTcw(fixture(C375));
+    const splines = ofType(doc.entities, 'spline');
+    const ellipses = ofType(doc.entities, 'ellipticArc');
+    const lines = ofType(doc.entities, 'polyline');
+    expect(splines).toHaveLength(1);
+    expect(ellipses).toHaveLength(1);
+    expect(lines).toHaveLength(9);
+    expect(doc.skipped).toEqual({ 'dimension/text': 4 });
+
+    const spline = splines[0];
+    expect(spline.points).toHaveLength(22);
+    expect(spline.points[0][0]).toBeCloseTo(15.91177, 4);
+    expect(spline.points[21][0]).toBeCloseTo(-18.07608, 4);
+
+    const ellipse = ellipses[0];
+    expect(ellipse.center[0]).toBeCloseTo(-23.91491, 4);
+    expect(ellipse.center[1]).toBeCloseTo(15.927, 3);
+    expect(ellipse.a).toBeCloseTo(7.4086, 3);
+    expect(ellipse.b).toBeCloseTo(6.8801, 3);
+    // Major axis is vertical; the arc sweeps counter-clockwise over the top from the spline's end.
+    expect(Math.abs(Math.sin((ellipse.rotation * Math.PI) / 180))).toBeCloseTo(1, 6);
+    const sweep = ((ellipse.endParam - ellipse.startParam) % 360 + 360) % 360;
+    expect(sweep).toBeGreaterThan(90);
+    expect(sweep).toBeLessThan(180);
+  });
+
+  it('builds the spline as a smooth curve through its fit points and the ellipse as a true elliptical arc', async () => {
+    paper.setup(new paper.Size(800, 600));
+    const summary = await importTcw(fixture(C375));
+    expect(summary.imported).toBe(11);
+
+    const spline = summary.items.find((p) => p.data?.isSpline)!;
+    expect(spline.segments).toHaveLength(22);
+    expect(spline.hasHandles()).toBe(true);
+    expect(spline.data.fitPoints[0].x).toBeCloseTo(15.91177, 4);
+    expect(spline.data.fitPoints[0].y).toBeCloseTo(-19.25954, 4); // Y flipped into sketch space
+
+    const ellipse = summary.items.find((p) => !p.data?.isSpline && p.hasHandles() && !p.data?.isArc)!;
+    expect(ellipse).toBeDefined();
+    // Endpoints coincide with the spline's end and the neighbouring line's end.
+    const ends = [ellipse.firstSegment.point, ellipse.lastSegment.point].map((p) => [p.x, p.y]);
+    expect(ends).toEqual(
+      expect.arrayContaining([
+        [expect.closeTo(-18.07608, 3), expect.closeTo(-19.8457, 3)],
+        [expect.closeTo(-29.98112, 3), expect.closeTo(-19.42234, 3)],
+      ])
+    );
+    // Every point on the arc satisfies the ellipse equation (a = 7.4086 vertical, b = 6.8801 horizontal).
+    for (let t = 0; t <= 1; t += 0.1) {
+      const p = ellipse.getPointAt(ellipse.length * t)!;
+      const u = (p.x + 23.91491) / 6.8801;
+      const v = (-p.y - 15.927) / 7.4086;
+      expect(u * u + v * v).toBeCloseTo(1, 3);
+    }
   });
 });
 
