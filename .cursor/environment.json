@@ -1,0 +1,10 @@
+{
+  "install": "pnpm install",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "description": "Vite dev server (default port 5173)"
+    }
+  ]
+}

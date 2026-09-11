@@ -1,4 +1,17 @@
-# React + TypeScript + Vite
+# Timber Profile Editor
+
+Vite + React + TypeScript app for editing timber profiles.
+
+## Cursor Cloud specific instructions
+
+This repo uses **pnpm** (`pnpm-lock.yaml`).
+
+- Install: `pnpm install`
+- Dev server: `pnpm dev`
+- Tests: `pnpm test`
+- Production build: `pnpm build`
+
+---
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
