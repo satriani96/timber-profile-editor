@@ -94,11 +94,9 @@ export default async function handler(req, res) {
 
     if (method === 'GET') {
       const id = queryValue(req.query, 'id');
-      if (!id) {
-        send(res, 400, { ok: false, error: 'id required' });
-        return;
-      }
-      const ns = await callRestlet('GET', { id });
+      const ns = id
+        ? await callRestlet('GET', { id })
+        : await callRestlet('GET', { list: '1' });
       const parsed = parseNs(ns.text);
       send(res, ns.status >= 400 || parsed.ok === false ? 400 : 200, parsed);
       return;

@@ -5,6 +5,19 @@ export type ProfileSheetDxf = {
   dxf: string;
 };
 
+export type ProfileSheetListItem = {
+  id: string;
+  name: string;
+  hasDxf: boolean;
+};
+
+export async function listProfileSheets(): Promise<ProfileSheetListItem[]> {
+  const res = await fetch('/api/profile-sheet?list=1');
+  const body = await res.json();
+  if (!res.ok || !body.ok) throw new Error(body.error || `List failed (${res.status})`);
+  return body.sheets;
+}
+
 export async function loadProfileSheet(id: string): Promise<ProfileSheetDxf> {
   const res = await fetch(`/api/profile-sheet?id=${encodeURIComponent(id)}`);
   const body = await res.json();

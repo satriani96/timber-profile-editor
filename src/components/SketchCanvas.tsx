@@ -14,6 +14,7 @@ import { createPasteTool } from '../canvas/tools/PasteTool';
 import { createSelectTool } from '../canvas/tools/SelectTool';
 import { collectPaperTools, useSketchClipboard } from './sketch/useSketchClipboard';
 import { createHistory, type SketchHistory } from '../canvas/history';
+import { resetLayers } from '../canvas/layers';
 import { buildDxf, exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
 import { prepareTcwImport } from '../importers/ImportTCW';
@@ -46,6 +47,7 @@ export type SketchCanvasHandle = {
   handleUploadImage: (file: File) => void;
   handleImportDXF: (file: File) => void;
   exportDxfText: () => string;
+  replaceFromDxf: (dxf: string) => number;
   undo: () => void;
   redo: () => void;
 };
@@ -378,28 +380,39 @@ function SketchCanvas(
   const cancelImport = useCallback(() => setPendingImport(null), []);
 
   const importedNsRef = useRef(false);
-  useEffect(() => {
-    if (!paperReady || !nsDxf || importedNsRef.current) return;
-    try {
-      const prepared = prepareDxfImport(nsDxf);
-      if (prepared.entityCount === 0) {
-        setStatusMessage('Profile Sheet has no DXF geometry yet');
-        importedNsRef.current = true;
-        return;
-      }
-      importedNsRef.current = true;
+  const replaceFromDxf = useCallback(
+    (dxf: string) => {
+      if (!paperReady || !paper.project) throw new Error('Canvas is not ready');
       history.checkpoint();
+      imageUploadRef.current?.removeImage();
+      setHasImage(false);
+      for (const item of [...paper.project.activeLayer.children]) item.remove();
+      resetLayers();
+      if (!dxf.trim()) return 0;
+      const prepared = prepareDxfImport(dxf);
       const summary = commitImport(prepared, prepared.headerMmPerUnit);
       if (summary.items.length) {
         let bounds = summary.items[0].bounds.clone();
         for (const item of summary.items) bounds = bounds.unite(item.bounds);
         zoomToFit(bounds);
       }
-      setStatusMessage(`Loaded ${summary.imported} ${summary.imported === 1 ? 'entity' : 'entities'} from NetSuite`);
+      return summary.imported;
+    },
+    [history, paperReady, zoomToFit]
+  );
+
+  useEffect(() => {
+    if (!paperReady || !nsDxf || importedNsRef.current) return;
+    importedNsRef.current = true;
+    try {
+      const imported = replaceFromDxf(nsDxf);
+      setStatusMessage(
+        imported ? `Loaded ${imported} ${imported === 1 ? 'entity' : 'entities'} from NetSuite` : 'Profile Sheet has no DXF geometry yet'
+      );
     } catch (error) {
       setStatusMessage(`NetSuite import failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [history, nsDxf, paperReady, zoomToFit]);
+  }, [nsDxf, paperReady, replaceFromDxf]);
 
   React.useImperativeHandle(
     ref,
@@ -407,10 +420,11 @@ function SketchCanvas(
       handleUploadImage,
       handleImportDXF,
       exportDxfText: () => buildDxf(),
+      replaceFromDxf,
       undo: () => runHistory('undo'),
       redo: () => runHistory('redo'),
     }),
-    [handleUploadImage, handleImportDXF, runHistory]
+    [handleImportDXF, handleUploadImage, replaceFromDxf, runHistory]
   );
 
   // --- Tool wiring (once Paper is ready; never call paper.setup here — it would wipe the project) ---

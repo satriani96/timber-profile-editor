@@ -10,7 +10,8 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   nsSheet?: { id: string; name: string } | null;
-  onSaveNs?: () => void;
+  onOpenLibrary?: () => void;
+  onSaveLibrary?: () => void;
   nsBusy?: boolean;
 }
 
@@ -91,7 +92,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onUndo,
   onRedo,
   nsSheet,
-  onSaveNs,
+  onOpenLibrary,
+  onSaveLibrary,
   nsBusy,
 }) => {
   const tool = (id: SketchTool) => ({ isActive: activeTool === id, onClick: () => setActiveTool(id) });
@@ -250,14 +252,24 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </Icon>
         <span>Export DXF</span>
       </button>
-      {nsSheet && onSaveNs && (
+      {onOpenLibrary && (
         <button
-          onClick={onSaveNs}
+          onClick={onOpenLibrary}
+          disabled={nsBusy}
+          className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-800 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
+          title="Open a Profile Sheet drawing"
+        >
+          <span>Open</span>
+        </button>
+      )}
+      {onSaveLibrary && (
+        <button
+          onClick={onSaveLibrary}
           disabled={nsBusy}
           className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
-          title={`Save DXF to Profile Sheet ${nsSheet.id}`}
+          title={nsSheet ? `Save to a Profile Sheet (current: ${nsSheet.name || nsSheet.id})` : 'Save this drawing to a Profile Sheet'}
         >
-          <span>{nsBusy ? 'Saving…' : `Save to ${nsSheet.name || `Sheet ${nsSheet.id}`}`}</span>
+          <span>{nsBusy ? 'Saving…' : 'Save'}</span>
         </button>
       )}
     </div>
