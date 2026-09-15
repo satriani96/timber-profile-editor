@@ -1,4 +1,4 @@
-const { createHmac, randomBytes } = require('crypto');
+import { createHmac, randomBytes } from 'node:crypto';
 
 function required(name) {
   const value = process.env[name];
@@ -59,7 +59,7 @@ async function callRestlet(method, query, body) {
   };
   const paramString = Object.keys(oauth)
     .sort()
-    .map((key) => `${percentEncode(key)}=${percentEncode(oauth[key])}`)
+    .map((key) => `${percentEncode(key)}=${percentEncode(String(oauth[key]))}`)
     .join('&');
   const baseString = `${method}&${percentEncode(url)}&${percentEncode(paramString)}`;
   const signingKey = `${percentEncode(consumerSecret)}&${percentEncode(tokenSecret)}`;
@@ -88,7 +88,7 @@ async function callRestlet(method, query, body) {
   return { status: res.status, text: await res.text() };
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   try {
     const method = req.method || 'GET';
 
@@ -120,4 +120,4 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
   }
-};
+}

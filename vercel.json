@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/profile-sheet.js": {
+      "maxDuration": 30
+    }
+  }
+}
