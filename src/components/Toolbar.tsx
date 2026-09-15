@@ -9,6 +9,9 @@ interface ToolbarProps {
   onUploadImage: (file: File) => void;
   onUndo: () => void;
   onRedo: () => void;
+  nsSheet?: { id: string; name: string } | null;
+  onSaveNs?: () => void;
+  nsBusy?: boolean;
 }
 
 const ToolButton: React.FC<{
@@ -87,6 +90,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onUploadImage,
   onUndo,
   onRedo,
+  nsSheet,
+  onSaveNs,
+  nsBusy,
 }) => {
   const tool = (id: SketchTool) => ({ isActive: activeTool === id, onClick: () => setActiveTool(id) });
 
@@ -244,6 +250,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </Icon>
         <span>Export DXF</span>
       </button>
+      {nsSheet && onSaveNs && (
+        <button
+          onClick={onSaveNs}
+          disabled={nsBusy}
+          className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
+          title={`Save DXF to Profile Sheet ${nsSheet.id}`}
+        >
+          <span>{nsBusy ? 'Saving…' : `Save to ${nsSheet.name || `Sheet ${nsSheet.id}`}`}</span>
+        </button>
+      )}
     </div>
   );
 };

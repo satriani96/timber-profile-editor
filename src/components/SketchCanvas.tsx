@@ -14,7 +14,7 @@ import { createPasteTool } from '../canvas/tools/PasteTool';
 import { createSelectTool } from '../canvas/tools/SelectTool';
 import { collectPaperTools, useSketchClipboard } from './sketch/useSketchClipboard';
 import { createHistory, type SketchHistory } from '../canvas/history';
-import { exportToDXF } from '../exporters/ExportDXF';
+import { buildDxf, exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
 import { prepareTcwImport } from '../importers/ImportTCW';
 import { commitImport, type PreparedImport } from '../importers/prepared';
@@ -39,11 +39,13 @@ interface SketchCanvasProps {
   activeTool: SketchTool;
   setActiveTool: (tool: SketchTool) => void;
   exportDXFRef: MutableRefObject<() => void>;
+  nsDxf?: string | null;
 }
 
 export type SketchCanvasHandle = {
   handleUploadImage: (file: File) => void;
   handleImportDXF: (file: File) => void;
+  exportDxfText: () => string;
   undo: () => void;
   redo: () => void;
 };
@@ -65,7 +67,7 @@ const TOOL_CURSORS: Record<SketchTool, string> = {
 };
 
 function SketchCanvas(
-  { activeTool, setActiveTool, exportDXFRef }: SketchCanvasProps,
+  { activeTool, setActiveTool, exportDXFRef, nsDxf }: SketchCanvasProps,
   ref: React.ForwardedRef<SketchCanvasHandle>
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -375,11 +377,36 @@ function SketchCanvas(
 
   const cancelImport = useCallback(() => setPendingImport(null), []);
 
+  const importedNsRef = useRef(false);
+  useEffect(() => {
+    if (!paperReady || !nsDxf || importedNsRef.current) return;
+    try {
+      const prepared = prepareDxfImport(nsDxf);
+      if (prepared.entityCount === 0) {
+        setStatusMessage('Profile Sheet has no DXF geometry yet');
+        importedNsRef.current = true;
+        return;
+      }
+      importedNsRef.current = true;
+      history.checkpoint();
+      const summary = commitImport(prepared, prepared.headerMmPerUnit);
+      if (summary.items.length) {
+        let bounds = summary.items[0].bounds.clone();
+        for (const item of summary.items) bounds = bounds.unite(item.bounds);
+        zoomToFit(bounds);
+      }
+      setStatusMessage(`Loaded ${summary.imported} ${summary.imported === 1 ? 'entity' : 'entities'} from NetSuite`);
+    } catch (error) {
+      setStatusMessage(`NetSuite import failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [history, nsDxf, paperReady, zoomToFit]);
+
   React.useImperativeHandle(
     ref,
     () => ({
       handleUploadImage,
       handleImportDXF,
+      exportDxfText: () => buildDxf(),
       undo: () => runHistory('undo'),
       redo: () => runHistory('redo'),
     }),
