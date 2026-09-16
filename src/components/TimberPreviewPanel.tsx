@@ -4,7 +4,7 @@ import {
   describeProfileError,
   extractProfileLoops,
 } from '../preview3d/profileSolid';
-import type { GrainStyle } from '../preview3d/timberMaterial';
+import type { GrainDirection, GrainStyle } from '../preview3d/timberMaterial';
 import {
   CAMERA_PRESET_IDS,
   CAMERA_PRESETS,
@@ -21,6 +21,11 @@ const GRAINS: { id: GrainStyle; label: string; title: string }[] = [
   { id: 'quarter', label: 'Quarter', title: 'Cut through the radius: quiet, near-parallel grain' },
 ];
 
+const DIRECTIONS: { id: GrainDirection; label: string; title: string }[] = [
+  { id: 'long', label: 'Long', title: 'Grain along the length of the sample' },
+  { id: 'cross', label: 'Cross', title: 'Grain across the width, rotated 90°' },
+];
+
 interface TimberPreviewPanelProps {
   onClose: () => void;
 }
@@ -28,6 +33,7 @@ interface TimberPreviewPanelProps {
 export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps) {
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
+  const [grainDirection, setGrainDirection] = useState<GrainDirection>('long');
   const [primed, setPrimed] = useState(false);
   const [preset, setPreset] = useState<CameraPresetId>(DEFAULT_CAMERA_PRESET);
   const result = useMemo(() => {
@@ -54,7 +60,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
         aria-labelledby="timber-preview-title"
         className="flex h-[min(90vh,46rem)] w-[min(96vw,72rem)] flex-col overflow-hidden rounded-lg bg-white text-sm text-gray-800 shadow-xl"
       >
-        <div className="flex items-center gap-3 border-b border-black/10 bg-gray-50 px-5 py-3">
+        <div className="flex flex-wrap items-center gap-3 border-b border-black/10 bg-gray-50 px-5 py-3">
           <h2 id="timber-preview-title" className="text-base font-semibold">
             3D preview
           </h2>
@@ -99,6 +105,22 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
               </button>
             ))}
           </div>
+          <div className="flex overflow-hidden rounded border border-gray-300" role="group" aria-label="Grain direction">
+            {DIRECTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                title={option.title}
+                aria-pressed={grainDirection === option.id}
+                onClick={() => setGrainDirection(option.id)}
+                className={`px-3 py-1 ${
+                  grainDirection === option.id ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <label
             className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1 text-gray-700"
             title="Machined faces shown with factory primer; the cut ends stay bare timber"
@@ -126,6 +148,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
                 loops={result.loops}
                 length={SAMPLE_LENGTH_MM}
                 grain={grain}
+                grainDirection={grainDirection}
                 primed={primed}
                 preset={preset}
               />

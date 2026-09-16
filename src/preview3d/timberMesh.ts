@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { softenArrises } from './arris';
-import { createTimberMaterial, type GrainStyle } from './timberMaterial';
+import { createTimberMaterial, type GrainDirection, type GrainStyle } from './timberMaterial';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 
 /** Edges meeting at less than this angle are smoothed (sampled arcs); sharper arrises stay crisp. */
@@ -11,7 +11,8 @@ export function createTimberMesh(
   loops: ProfileLoops,
   length: number,
   grain: GrainStyle = 'flat',
-  primed = false
+  primed = false,
+  direction: GrainDirection = 'long'
 ): THREE.Mesh {
   const bounds = profileBounds(loops);
   const arris = Math.min(1.0, 0.05 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
@@ -30,22 +31,23 @@ export function createTimberMesh(
   const geometry = toCreasedNormals(extruded, CREASE_ANGLE);
   extruded.dispose();
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
-  geometry.setAttribute('uv', grainUvs(geometry));
+  geometry.setAttribute('uv', grainUvs(geometry, direction));
 
-  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, grain, primed));
+  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, length, grain, primed, direction));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
 }
 
 /**
- * UVs exist only to give the anisotropic highlight a tangent frame: u runs along the grain
- * (the length) on every long face, and across the end caps where the fibres are cut.
+ * UVs exist only to give the anisotropic highlight a tangent frame: u runs along the fibres
+ * on faces that follow the grain, and across the faces where those fibres are cut.
  */
-function grainUvs(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
+function grainUvs(geometry: THREE.BufferGeometry, direction: GrainDirection): THREE.BufferAttribute {
   const pos = geometry.getAttribute('position');
   const nrm = geometry.getAttribute('normal');
   const uv = new Float32Array(pos.count * 2);
+  const cross = direction === 'cross';
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const y = pos.getY(i);
@@ -53,7 +55,15 @@ function grainUvs(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
     const nx = nrm.getX(i);
     const ny = nrm.getY(i);
     const nz = nrm.getZ(i);
-    if (Math.abs(nz) > 0.7) {
+    if (cross) {
+      if (Math.abs(nx) > 0.7) {
+        uv[i * 2] = z * 0.01;
+        uv[i * 2 + 1] = y * 0.01;
+      } else {
+        uv[i * 2] = x * 0.01;
+        uv[i * 2 + 1] = (y * -nz + z * ny) * 0.01;
+      }
+    } else if (Math.abs(nz) > 0.7) {
       uv[i * 2] = x * 0.01;
       uv[i * 2 + 1] = y * 0.01;
     } else {

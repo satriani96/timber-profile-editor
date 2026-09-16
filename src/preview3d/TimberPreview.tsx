@@ -4,7 +4,7 @@ import { Environment } from '@react-three/drei';
 import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
-import type { GrainStyle } from './timberMaterial';
+import type { GrainDirection, GrainStyle } from './timberMaterial';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 import {
   CAMERA_PRESETS,
@@ -57,20 +57,21 @@ interface SceneProps {
   loops: ProfileLoops;
   length: number;
   grain: GrainStyle;
+  grainDirection: GrainDirection;
   primed: boolean;
   preset: CameraPresetId;
 }
 
-function Scene({ loops, length, grain, primed, preset }: SceneProps) {
+function Scene({ loops, length, grain, grainDirection, primed, preset }: SceneProps) {
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
-    const next = createTimberMesh(loops, length, grain, primed);
+    const next = createTimberMesh(loops, length, grain, primed, grainDirection);
     setMesh(next);
     return () => {
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [grain, length, loops, primed]);
+  }, [grain, grainDirection, length, loops, primed]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -160,12 +161,14 @@ export default function TimberPreview({
   loops,
   length,
   grain = 'flat',
+  grainDirection = 'long',
   primed = false,
   preset,
 }: {
   loops: ProfileLoops;
   length: number;
   grain?: GrainStyle;
+  grainDirection?: GrainDirection;
   primed?: boolean;
   preset: CameraPresetId;
 }) {
@@ -186,7 +189,14 @@ export default function TimberPreview({
       // fine grain and the arrises. The panel is small enough for this to be cheap.
       dpr={2}
     >
-      <Scene loops={loops} length={length} grain={grain} primed={primed} preset={preset} />
+      <Scene
+        loops={loops}
+        length={length}
+        grain={grain}
+        grainDirection={grainDirection}
+        primed={primed}
+        preset={preset}
+      />
     </Canvas>
   );
 }
