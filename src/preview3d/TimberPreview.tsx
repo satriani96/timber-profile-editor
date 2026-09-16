@@ -97,11 +97,11 @@ function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; 
       {/* Soft pool of shadow directly under the piece, the way a product sits on a white sweep. */}
       <ContactShadows
         position={[0, 0.02, 0]}
-        opacity={0.42}
-        scale={[width * 3 + length * 0.4, length * 1.4]}
-        blur={2.4}
-        far={Math.max(30, height * 0.9)}
-        resolution={1024}
+        opacity={0.26}
+        scale={[width * 5 + length * 0.7, length * 2]}
+        blur={5.5}
+        far={Math.max(60, height * 1.6)}
+        resolution={512}
         color="#3a2a16"
         frames={1}
       />

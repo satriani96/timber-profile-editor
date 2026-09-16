@@ -21,18 +21,16 @@ export function usePaperBootstrap(
     setPaperReady(true);
     setZoom(paper.view.zoom);
 
+    // Size the view from the container in CSS pixels and let Paper own the backing store.
+    // Paper's viewSize setter multiplies by the device pixel ratio and applies the matching
+    // context scale itself; touching canvas.width/height here would reset that transform
+    // (which on HiDPI screens shows up as offset drawing, ghost trails and offset hit-testing).
     function resizePaperCanvas() {
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
+      if (!canvas || !paper.view) return;
+      const rect = (canvas.parentElement ?? canvas).getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
-      if (paper.view) {
-        paper.view.viewSize = new paper.Size(rect.width, rect.height);
-      }
+      const size = new paper.Size(rect.width, rect.height);
+      if (!paper.view.viewSize.equals(size)) paper.view.viewSize = size;
     }
     resizePaperCanvas();
     window.addEventListener('resize', resizePaperCanvas);

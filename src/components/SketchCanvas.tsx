@@ -566,7 +566,7 @@ function SketchCanvas(
 
   return (
     <div className="w-full h-full relative">
-      <canvas ref={canvasRef} className="w-full h-full bg-gray-100 focus:outline-none" data-paper-resize tabIndex={0} />
+      <canvas ref={canvasRef} className="block bg-gray-100 focus:outline-none" tabIndex={0} />
       <ZoomLevelIndicator zoom={viewport.zoom} onZoomToFit={() => zoomToFit()} />
       <StatusToast message={statusMessage} onDismiss={dismissStatus} />
       {pendingImport && (
