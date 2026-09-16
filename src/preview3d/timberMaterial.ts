@@ -11,7 +11,7 @@ import { profileBounds, type ProfileLoops } from './profileSolid';
  * faces show cathedral figure where the profile cuts the rings, and the two always match.
  */
 
-const RING_MM = 12.0;
+const RING_MM = 9.0;
 
 const GLSL_NOISE = /* glsl */ `
 float hash13(vec3 p) {
@@ -49,6 +49,7 @@ uniform vec3 uEarlywood;
 uniform vec3 uLatewood;
 uniform float uBumpScale;
 varying vec3 vWoodPos;
+varying vec3 vWoodNormal;
 
 // Distance from the pith, warped so rings are not perfect circles and drift along the log.
 // The slow sine keeps the mapping monotonic while varying ring width between good and lean years.
@@ -62,15 +63,17 @@ float woodRadius(vec3 p) {
 }
 
 // Latewood weight in 0..1. Earlywood is wide and pale; latewood darkens gradually and then
-// stops at the ring boundary, giving the soft flame figure of planed pine. aa widens the
+// stops at the ring boundary, giving the soft flame figure of planed pine. On end grain
+// (crisp -> 1) the rings read as narrow, sharply drawn lines instead. aa widens the
 // transitions by the pixel footprint so distant rings do not shimmer.
-float woodLatewood(float r, float aa) {
+float woodLatewood(float r, float aa, float crisp) {
   float ring = floor(r / RING_MM);
   float phase = fract(r / RING_MM);
-  float start = 0.3 + 0.2 * hash13(vec3(ring, 2.7, 9.1));
+  float start = mix(0.3 + 0.2 * hash13(vec3(ring, 2.7, 9.1)), 0.66, crisp);
   float depth = 0.7 + 0.3 * hash13(vec3(ring, 8.3, 0.4));
+  float rise = mix(0.08, 0.03, crisp);
   // Earlywood blends slowly into latewood; the ring boundary on the far side is crisper.
-  float late = smoothstep(start - 0.12 - aa, 0.85 + aa, phase) * (1.0 - smoothstep(0.9 - aa, 1.0, phase));
+  float late = smoothstep(start - rise - aa, 0.85 + aa, phase) * (1.0 - smoothstep(0.9 - aa, 1.0, phase));
   return mix(late * depth, 0.3, smoothstep(0.35, 1.2, aa));
 }
 
@@ -85,8 +88,8 @@ float woodFibre(vec3 p, float px) {
   return (f - 0.5) * fibreFade + ((streaks - 0.5) * 0.7 + (pores - 0.5) * 0.3) * fineFade;
 }
 
-float woodHeight(vec3 p, float aa, float px) {
-  return woodLatewood(woodRadius(p), aa) + woodFibre(p, px) * 0.45;
+float woodHeight(vec3 p, float aa, float px, float crisp) {
+  return woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.45;
 }
 
 vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
@@ -104,29 +107,34 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   vec3 woodDx = dFdx(vWoodPos);
   vec3 woodDy = dFdy(vWoodPos);
   float woodPx = max(length(woodDx), length(woodDy));
+  // End grain: cut across the fibres it is rougher, soaks up light and shows the rings as
+  // crisp lines, which is what makes the profile shape read at a glance.
+  float endGrain = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
   float woodR = woodRadius(vWoodPos);
   float woodAA = fwidth(woodR) / RING_MM;
-  float woodLate = woodLatewood(woodR, woodAA);
+  float woodLate = woodLatewood(woodR, woodAA, endGrain);
   float woodFib = woodFibre(vWoodPos, woodPx);
 
   // Large, slow colour drift along the board (heart/sap tint, mineral streaks).
   float tint = fbm(vec3(vWoodPos.x * 0.03, vWoodPos.y * 0.03, vWoodPos.z * 0.0025)) - 0.5;
   vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * 0.9 + woodFib * 0.06, 0.0, 1.0));
   woodColor *= 1.0 + tint * vec3(0.08, 0.05, 0.0);
-  woodColor *= 1.0 + woodFib * vec3(0.04, 0.05, 0.08);
+  woodColor *= 1.0 + woodFib * vec3(0.09, 0.11, 0.15);
+  woodColor *= mix(1.0, 0.8, endGrain);
 
   // Latewood is denser and slightly glossier than the soft, absorbent earlywood.
-  float woodRough = clamp(0.62 - woodLate * 0.15 + woodFib * 0.1, 0.35, 0.9);
+  float woodRough = clamp(0.78 - woodLate * 0.12 + woodFib * 0.1 + endGrain * 0.15, 0.45, 0.95);
 
-  float woodH0 = woodHeight(vWoodPos, woodAA, woodPx);
+  float woodH0 = woodHeight(vWoodPos, woodAA, woodPx, endGrain);
   vec2 woodDHdxy = vec2(
-    woodHeight(vWoodPos + woodDx, woodAA, woodPx) - woodH0,
-    woodHeight(vWoodPos + woodDy, woodAA, woodPx) - woodH0
+    woodHeight(vWoodPos + woodDx, woodAA, woodPx, endGrain) - woodH0,
+    woodHeight(vWoodPos + woodDy, woodAA, woodPx, endGrain) - woodH0
   ) * uBumpScale;
 `;
 
 const VERTEX_PARS = /* glsl */ `
 varying vec3 vWoodPos;
+varying vec3 vWoodNormal;
 `;
 
 export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMaterial {
@@ -136,12 +144,9 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.6,
+    roughness: 0.78,
     metalness: 0,
-    sheen: 0.15,
-    sheenRoughness: 0.8,
-    sheenColor: new THREE.Color('#e6cfa4'),
-    specularIntensity: 0.5,
+    specularIntensity: 0.3,
   });
 
   // Boards are flat-sawn with the wide face tangential to the rings, so the pith sits out
@@ -155,8 +160,10 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
       : new THREE.Vector2(width / 2 + pithDistance * 0.8, height * 0.7);
   const uniforms = {
     uPith: { value: pith },
-    uEarlywood: { value: new THREE.Color('#ece4d6').convertSRGBToLinear() },
-    uLatewood: { value: new THREE.Color('#bfa688').convertSRGBToLinear() },
+    // Photographed clear pine: warm honey earlywood, soft tan latewood. THREE.Color already
+    // converts hex (sRGB) into the linear working space, so no further conversion here.
+    uEarlywood: { value: new THREE.Color('#e2cfa3') },
+    uLatewood: { value: new THREE.Color('#b6935f') },
     uBumpScale: { value: 0.2 },
   };
 
@@ -164,6 +171,7 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERTEX_PARS}`)
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n  vWoodNormal = objectNormal;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWoodPos = position;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n#define RING_MM ${RING_MM.toFixed(2)}\n${GLSL_NOISE}\n${GLSL_WOOD}`)

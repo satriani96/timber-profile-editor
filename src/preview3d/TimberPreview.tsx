@@ -5,12 +5,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
-/** Three-quarter product view: end grain and both visible faces read clearly, length runs off to the right. */
-const AZIMUTH = (38 * Math.PI) / 180;
-const ELEVATION = (24 * Math.PI) / 180;
-const FOV = 30;
-/** How much of the length is framed; the rest runs out of the picture. */
-const FRAMED_LENGTH_MM = 280;
+/** 45° product view from a little above: end grain on the left, moulded face towards the camera. */
+const AZIMUTH = (45 * Math.PI) / 180;
+const ELEVATION = (14 * Math.PI) / 180;
+const FOV = 35;
 
 function StudioEnvironment() {
   const { gl, scene } = useThree();
@@ -19,7 +17,7 @@ function StudioEnvironment() {
     const envScene = new RoomEnvironment();
     const texture = pmrem.fromScene(envScene, 0.04).texture;
     scene.environment = texture;
-    scene.environmentIntensity = 0.95;
+    scene.environmentIntensity = 0.8;
     envScene.dispose();
     return () => {
       scene.environment = null;
@@ -74,18 +72,14 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
 
-  // Product-shot framing: the near end sits in the lower left and the length runs out of the
-  // frame, so the profile and end grain fill the picture rather than a whole short stick.
-  const visible = Math.max(FRAMED_LENGTH_MM, Math.max(width, height) * 1.6);
-  const nearEnd = length / 2;
-  const target = useMemo(
-    () => new THREE.Vector3(0, height / 2, nearEnd - visible * 0.5),
-    [height, nearEnd, visible]
-  );
-  const radius = Math.hypot(width, height, visible) * 0.46;
-  const extent = Math.max(width, height, visible);
+  // Whole sample in frame, like a photographed offcut: near end grain on the left, far end
+  // on the right, seen from slightly above.
+  const target = useMemo(() => new THREE.Vector3(0, height / 2, 0), [height]);
+  const radius = Math.hypot(width, height, length) * 0.4;
+  const extent = Math.max(width, height, length);
   // Physically based spot: intensity scales with distance² so the piece reads the same at any size.
-  const keyOffset: [number, number, number] = [extent * 0.7, extent * 1.3, extent * 0.9];
+  // It sits up and to the camera's right so the face carries a gentle fall-off along its length.
+  const keyOffset: [number, number, number] = [extent * 1.3, extent * 1.5, extent * 1.2];
   const keyDistance = Math.hypot(...keyOffset);
   // A spot aims at an Object3D that must live in the scene for its matrix to update.
   const keyTarget = useMemo(() => new THREE.Object3D(), []);
@@ -96,20 +90,18 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
     <>
       <FramedCamera target={target} radius={radius} />
       <StudioEnvironment />
-      <group position={[0, 0, target.z]}>
-        <primitive object={keyTarget} position={[0, height / 2, 0]} />
-        <spotLight
-          target={keyTarget}
-          position={keyOffset}
-          intensity={1.3 * keyDistance * keyDistance}
-          color="#ffffff"
-          angle={0.8}
-          penumbra={0.9}
-          decay={2}
-        />
-        <directionalLight position={[-extent, extent * 0.6, extent * 0.5]} intensity={0.5} color="#eef2f8" />
-        <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.6} color="#ffffff" />
-      </group>
+      <primitive object={keyTarget} position={[0, height / 2, 0]} />
+      <spotLight
+        target={keyTarget}
+        position={keyOffset}
+        intensity={1.0 * keyDistance * keyDistance}
+        color="#fffaf3"
+        angle={0.6}
+        penumbra={0.9}
+        decay={2}
+      />
+      <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.35} color="#f2f4f8" />
+      <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.3} color="#ffffff" />
       <primitive object={mesh} />
     </>
   );
