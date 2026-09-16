@@ -2,6 +2,7 @@ import paper from 'paper';
 import { PROFILE_LAYER } from '../canvas/layers';
 import { aciToHex } from '../exporters/aci';
 import { millimetresPerUnit, parseDxf, type DxfDocument, type DxfEntity, type DxfPoint, type DxfVertex } from './dxfParser';
+import { flattenDxfDocument, type ViewPlane } from './viewPlane';
 import { bsplineToSegments, clampedUniformKnots, knotsAreValid, sampleBSpline } from './splineConversion';
 import {
   buildCircular,
@@ -39,13 +40,18 @@ const INSUNITS_NAMES: Record<number, string> = {
  * override it. CAD exporters do not always write a $INSUNITS that matches the
  * numbers in the file.
  */
-export function prepareDxfImport(text: string): PreparedImport {
-  const doc = parseDxf(text);
+export function prepareFromDxfDocument(
+  raw: DxfDocument,
+  format: 'dxf' | 'dwg',
+  plane: ViewPlane = 'auto',
+  repreparePlane?: PreparedImport['repreparePlane']
+): PreparedImport {
+  const { doc, plane: viewPlane, planeNote } = flattenDxfDocument(raw, plane);
   const build: GeometryBuilder = (matrix, items, skipped) => buildEntities(doc.entities, matrix, doc, items, skipped, 0);
   const { extents, count } = measureBuilder(build);
   const unitName = INSUNITS_NAMES[doc.insUnits];
   return {
-    format: 'dxf',
+    format,
     entityCount: count,
     extents,
     headerMmPerUnit: millimetresPerUnit(doc.insUnits),
@@ -57,8 +63,15 @@ export function prepareDxfImport(text: string): PreparedImport {
       name: mapImportedLayer(layer.name),
       color: aciToHex(Math.abs(layer.colorIndex) || 7),
     })),
+    viewPlane,
+    viewPlaneNote: planeNote,
+    repreparePlane,
     build,
   };
+}
+
+export function prepareDxfImport(text: string, plane: ViewPlane = 'auto'): PreparedImport {
+  return prepareFromDxfDocument(parseDxf(text), 'dxf', plane, (next) => prepareDxfImport(text, next));
 }
 
 function mapImportedLayer(name: string): string {
@@ -156,7 +169,7 @@ function buildEntities(
           skip(skipped, 'INSERT (nested too deeply)');
           break;
         }
-        if (entity.scale.x === 0 || entity.scale.y === 0) {
+        if (entity.scale.x === 0 || entity.scale.y === 0 || entity.scale.z === 0) {
           skip(skipped, 'INSERT (zero scale)');
           break;
         }

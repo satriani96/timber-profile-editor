@@ -247,8 +247,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
       )}
 
       <FileButton
-        label="Import DXF / TCW"
-        accept=".dxf,.tcw,application/dxf,image/vnd.dxf"
+        label="Import DXF / DWG / TCW"
+        accept=".dxf,.dwg,.tcw,application/dxf,image/vnd.dxf,application/acad,application/x-autocad"
         className="bg-gray-600 hover:bg-gray-500"
         onFile={onImportDXF}
       >
