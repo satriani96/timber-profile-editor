@@ -5,6 +5,13 @@ import {
   extractProfileLoops,
 } from '../preview3d/profileSolid';
 import type { GrainStyle } from '../preview3d/timberMaterial';
+import {
+  CAMERA_PRESET_IDS,
+  CAMERA_PRESETS,
+  DEFAULT_CAMERA_PRESET,
+  isCameraPresetId,
+  type CameraPresetId,
+} from '../preview3d/cameraPresets';
 
 const TimberPreview = lazy(() => import('../preview3d/TimberPreview'));
 
@@ -22,6 +29,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
   const [primed, setPrimed] = useState(false);
+  const [preset, setPreset] = useState<CameraPresetId>(DEFAULT_CAMERA_PRESET);
   const result = useMemo(() => {
     try {
       return { ok: true as const, loops: extractProfileLoops() };
@@ -53,6 +61,28 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
           <p className="min-w-0 flex-1 text-gray-600">
             Clear pine sample, generated from the current drawing
           </p>
+          <label className="flex items-center gap-1.5 text-gray-700">
+            View
+            <select
+              aria-label="View angle"
+              title={CAMERA_PRESETS[preset].title}
+              value={preset}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (!isCameraPresetId(value)) {
+                  throw new Error(`Unknown camera preset: ${value}`);
+                }
+                setPreset(value);
+              }}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700"
+            >
+              {CAMERA_PRESET_IDS.map((id) => (
+                <option key={id} value={id} title={CAMERA_PRESETS[id].title}>
+                  {CAMERA_PRESETS[id].label}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="flex overflow-hidden rounded border border-gray-300" role="group" aria-label="Grain">
             {GRAINS.map((option) => (
               <button
@@ -92,7 +122,13 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             <Suspense
               fallback={<p className="p-8 text-center text-gray-600">Loading preview…</p>}
             >
-              <TimberPreview loops={result.loops} length={SAMPLE_LENGTH_MM} grain={grain} primed={primed} />
+              <TimberPreview
+                loops={result.loops}
+                length={SAMPLE_LENGTH_MM}
+                grain={grain}
+                primed={primed}
+                preset={preset}
+              />
             </Suspense>
           ) : (
             <p className="px-8 py-16 text-center text-gray-700">{result.message}</p>
