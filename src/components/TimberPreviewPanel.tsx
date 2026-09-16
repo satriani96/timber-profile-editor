@@ -21,6 +21,7 @@ interface TimberPreviewPanelProps {
 export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps) {
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
+  const [primed, setPrimed] = useState(false);
   const result = useMemo(() => {
     try {
       return { ok: true as const, loops: extractProfileLoops() };
@@ -68,6 +69,13 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
               </button>
             ))}
           </div>
+          <label
+            className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1 text-gray-700"
+            title="Machined faces shown with factory primer; the cut ends stay bare timber"
+          >
+            <input type="checkbox" checked={primed} onChange={(event) => setPrimed(event.target.checked)} />
+            Primed
+          </label>
           <button
             type="button"
             className="rounded px-3 py-1 text-gray-700 hover:bg-gray-100"
@@ -84,7 +92,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             <Suspense
               fallback={<p className="p-8 text-center text-gray-600">Loading preview…</p>}
             >
-              <TimberPreview loops={result.loops} length={SAMPLE_LENGTH_MM} grain={grain} />
+              <TimberPreview loops={result.loops} length={SAMPLE_LENGTH_MM} grain={grain} primed={primed} />
             </Suspense>
           ) : (
             <p className="px-8 py-16 text-center text-gray-700">{result.message}</p>

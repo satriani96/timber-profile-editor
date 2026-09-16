@@ -39,16 +39,23 @@ function FramedCamera({ target, radius }: { target: THREE.Vector3; radius: numbe
   return null;
 }
 
-function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; grain: GrainStyle }) {
+interface SceneProps {
+  loops: ProfileLoops;
+  length: number;
+  grain: GrainStyle;
+  primed: boolean;
+}
+
+function Scene({ loops, length, grain, primed }: SceneProps) {
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
-    const next = createTimberMesh(loops, length, grain);
+    const next = createTimberMesh(loops, length, grain, primed);
     setMesh(next);
     return () => {
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [grain, length, loops]);
+  }, [grain, length, loops, primed]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -98,31 +105,33 @@ function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; 
           wide-blurred VSM shadow onto a plane that shows nothing but the shadow it receives, so
           the pool sits directly under the piece and feathers out, and the background stays clear. */}
       <directionalLight
-        // Slightly behind and above, so the pool spreads out in front of the piece towards the camera.
-        position={[-extent * 0.3, extent * 2.2, -extent * 0.3]}
+        // Behind and above, so the pool is thrown one way: out in front of the piece towards the camera.
+        position={[-extent * 0.7, extent * 2.0, -extent * 0.55]}
         intensity={0.2}
         color="#ffffff"
         castShadow
-        shadow-mapSize={[512, 512]}
+        shadow-mapSize={[1024, 1024]}
         shadow-bias={-0.001}
         shadow-normalBias={1.5}
-        shadow-radius={45}
-        shadow-blurSamples={20}
+        shadow-radius={70}
+        shadow-blurSamples={24}
         shadow-camera-near={extent}
         shadow-camera-far={extent * 3.4}
-        shadow-camera-left={-extent * 0.65}
-        shadow-camera-right={extent * 0.65}
-        shadow-camera-top={extent * 0.65}
-        shadow-camera-bottom={-extent * 0.65}
+        // Generous frustum: the blurred pool must fade out inside it, not be cut by its edge.
+        shadow-camera-left={-extent * 1.3}
+        shadow-camera-right={extent * 1.3}
+        shadow-camera-top={extent * 1.3}
+        shadow-camera-bottom={-extent * 1.3}
       />
+      {/* Oversized so its edge never crosses the frame (the AO pass would outline it). */}
       <mesh rotation-x={-Math.PI / 2} position-y={-0.05} receiveShadow>
-        <planeGeometry args={[length * 3, length * 3]} />
+        <planeGeometry args={[length * 40, length * 40]} />
         <shadowMaterial transparent opacity={0.45} color="#2a1e12" />
       </mesh>
       {/* Ambient occlusion only. The depth-of-field effect writes an opaque alpha channel, which
           would kill the transparent background, so focus fall-off is left to the lens choice. */}
       <EffectComposer multisampling={8}>
-        <N8AO aoRadius={extent * 0.06} distanceFalloff={extent * 0.12} intensity={1.6} quality="medium" />
+        <N8AO aoRadius={extent * 0.05} distanceFalloff={extent * 0.1} intensity={1.2} quality="medium" />
       </EffectComposer>
     </>
   );
@@ -132,10 +141,12 @@ export default function TimberPreview({
   loops,
   length,
   grain = 'flat',
+  primed = false,
 }: {
   loops: ProfileLoops;
   length: number;
   grain?: GrainStyle;
+  primed?: boolean;
 }) {
   return (
     <Canvas
@@ -154,7 +165,7 @@ export default function TimberPreview({
       // fine grain and the arrises. The panel is small enough for this to be cheap.
       dpr={2}
     >
-      <Scene loops={loops} length={length} grain={grain} />
+      <Scene loops={loops} length={length} grain={grain} primed={primed} />
     </Canvas>
   );
 }

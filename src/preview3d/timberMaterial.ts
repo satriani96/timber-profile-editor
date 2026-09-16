@@ -64,6 +64,8 @@ uniform vec3 uEarlywood;
 uniform vec3 uLatewood;
 uniform float uBumpScale;
 uniform vec3 uSeed;
+uniform float uPrimed;
+uniform vec3 uPrimer;
 varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
 
@@ -181,6 +183,14 @@ const GLSL_WOOD_EVAL = /* glsl */ `
     woodHeight(vWoodPos + woodDx, woodAA, woodPx, endGrain, endGrain) - woodH0,
     woodHeight(vWoodPos + woodDy, woodAA, woodPx, endGrain, endGrain) - woodH0
   ) * uBumpScale * (1.0 - arris);
+
+  // Primed finish: the machined faces carry a coat of matte primer while the cut ends stay
+  // bare timber. Primer fills most of the grain, so only a faint ghost of the relief remains.
+  float primed = uPrimed * (1.0 - endGrain);
+  vec3 primerColor = uPrimer * (1.0 + woodFib * 0.03 + woodLate * 0.015);
+  woodColor = mix(woodColor, primerColor, primed);
+  woodRough = mix(woodRough, 0.82 - arris * 0.15, primed);
+  woodDHdxy *= mix(1.0, 0.3, primed);
 `;
 
 const VERTEX_PARS = /* glsl */ `
@@ -188,7 +198,11 @@ varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
 `;
 
-export function createTimberMaterial(loops: ProfileLoops, style: GrainStyle = 'flat'): THREE.MeshPhysicalMaterial {
+export function createTimberMaterial(
+  loops: ProfileLoops,
+  style: GrainStyle = 'flat',
+  primed = false
+): THREE.MeshPhysicalMaterial {
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
@@ -200,8 +214,8 @@ export function createTimberMaterial(loops: ProfileLoops, style: GrainStyle = 'f
     metalness: 0,
     specularIntensity: 0.35,
     // Highlights stretch along the fibres. The mesh UVs put u along the length so the
-    // anisotropy tangent follows the grain on every face.
-    anisotropy: 0.55,
+    // anisotropy tangent follows the grain on every face. Paint has no fibre direction.
+    anisotropy: primed ? 0 : 0.55,
     anisotropyRotation: 0,
   });
 
@@ -225,6 +239,9 @@ export function createTimberMaterial(loops: ProfileLoops, style: GrainStyle = 'f
     uEarlywood: { value: new THREE.Color('#e2cfa3') },
     uLatewood: { value: new THREE.Color('#bf955a') },
     uBumpScale: { value: 0.35 },
+    uPrimed: { value: primed ? 1 : 0 },
+    // Factory primer: a soft warm white rather than a paper white.
+    uPrimer: { value: new THREE.Color('#e3e0d8') },
   };
 
   material.onBeforeCompile = (shader) => {
@@ -242,6 +259,6 @@ export function createTimberMaterial(loops: ProfileLoops, style: GrainStyle = 'f
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'
       );
   };
-  material.customProgramCacheKey = () => 'timber-pine-solid-v3';
+  material.customProgramCacheKey = () => 'timber-pine-solid-v4';
   return material;
 }
