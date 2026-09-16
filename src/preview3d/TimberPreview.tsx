@@ -1,6 +1,6 @@
 import { Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { ContactShadows, Environment } from '@react-three/drei';
+import { Environment } from '@react-three/drei';
 import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
@@ -83,8 +83,8 @@ function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; 
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0006}
         shadow-normalBias={1.2}
-        shadow-radius={5}
-        shadow-blurSamples={12}
+        shadow-radius={12}
+        shadow-blurSamples={16}
         shadow-camera-near={extent * 0.5}
         shadow-camera-far={extent * 4}
         shadow-camera-left={-extent * 0.7}
@@ -94,17 +94,31 @@ function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; 
       />
       <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.3} color="#f2f4f8" />
       <primitive object={mesh} />
-      {/* Soft pool of shadow directly under the piece, the way a product sits on a white sweep. */}
-      <ContactShadows
-        position={[0, 0.02, 0]}
-        opacity={0.26}
-        scale={[width * 5 + length * 0.7, length * 2]}
-        blur={5.5}
-        far={Math.max(60, height * 1.6)}
-        resolution={512}
-        color="#3a2a16"
-        frames={1}
+      {/* Ground shadow as a product sits on a white sweep. A dim, near-overhead light casts a
+          wide-blurred VSM shadow onto a plane that shows nothing but the shadow it receives, so
+          the pool sits directly under the piece and feathers out, and the background stays clear. */}
+      <directionalLight
+        // Slightly behind and above, so the pool spreads out in front of the piece towards the camera.
+        position={[-extent * 0.3, extent * 2.2, -extent * 0.3]}
+        intensity={0.2}
+        color="#ffffff"
+        castShadow
+        shadow-mapSize={[512, 512]}
+        shadow-bias={-0.001}
+        shadow-normalBias={1.5}
+        shadow-radius={45}
+        shadow-blurSamples={20}
+        shadow-camera-near={extent}
+        shadow-camera-far={extent * 3.4}
+        shadow-camera-left={-extent * 0.65}
+        shadow-camera-right={extent * 0.65}
+        shadow-camera-top={extent * 0.65}
+        shadow-camera-bottom={-extent * 0.65}
       />
+      <mesh rotation-x={-Math.PI / 2} position-y={-0.05} receiveShadow>
+        <planeGeometry args={[length * 3, length * 3]} />
+        <shadowMaterial transparent opacity={0.45} color="#2a1e12" />
+      </mesh>
       {/* Ambient occlusion only. The depth-of-field effect writes an opaque alpha channel, which
           would kill the transparent background, so focus fall-off is left to the lens choice. */}
       <EffectComposer multisampling={8}>
