@@ -6,9 +6,11 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
-const AZIMUTH = Math.PI / 4;
-const ELEVATION = (28 * Math.PI) / 180;
-const FOV = 32;
+const AZIMUTH = (38 * Math.PI) / 180;
+const ELEVATION = (24 * Math.PI) / 180;
+const FOV = 30;
+/** How much of the length is framed; the rest runs out of the picture. */
+const FRAMED_LENGTH_MM = 280;
 
 function StudioEnvironment() {
   const { gl, scene } = useThree();
@@ -17,9 +19,11 @@ function StudioEnvironment() {
     const envScene = new RoomEnvironment();
     const texture = pmrem.fromScene(envScene, 0.04).texture;
     scene.environment = texture;
+    scene.environmentIntensity = 0.75;
     envScene.dispose();
     return () => {
       scene.environment = null;
+      scene.environmentIntensity = 1;
       texture.dispose();
       pmrem.dispose();
     };
@@ -69,8 +73,22 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
-  const target = useMemo(() => new THREE.Vector3(0, height / 2, 0), [height]);
-  const radius = Math.hypot(width, height, length) * 0.42;
+
+  // Product-shot framing: the near end sits in the lower left and the length runs out of the
+  // frame, so the profile and end grain fill the picture rather than a whole short stick.
+  const visible = Math.max(FRAMED_LENGTH_MM, Math.max(width, height) * 1.6);
+  const nearEnd = length / 2;
+  const target = useMemo(
+    () => new THREE.Vector3(0, height / 2, nearEnd - visible * 0.5),
+    [height, nearEnd, visible]
+  );
+  const radius = Math.hypot(width, height, visible) * 0.46;
+  const extent = Math.max(width, height, visible);
+  // Physically based spot: intensity scales with distance² so the piece reads the same at any size.
+  const keyOffset: [number, number, number] = [extent * 0.7, extent * 1.3, extent * 0.9];
+  const keyDistance = Math.hypot(...keyOffset);
+  // A spot aims at an Object3D that must live in the scene for its matrix to update.
+  const keyTarget = useMemo(() => new THREE.Object3D(), []);
 
   if (!mesh) return null;
 
@@ -78,19 +96,37 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
     <>
       <FramedCamera target={target} radius={radius} />
       <StudioEnvironment />
-      <ambientLight intensity={0.22} />
-      <directionalLight position={[420, 520, 180]} intensity={1.45} color="#fff4e4" />
-      <directionalLight position={[-320, 180, 80]} intensity={0.4} color="#d4deee" />
-      <directionalLight position={[40, 260, -420]} intensity={0.58} color="#ffffff" />
+      <group position={[0, 0, target.z]}>
+        <primitive object={keyTarget} position={[0, height / 2, 0]} />
+        <spotLight
+          target={keyTarget}
+          position={keyOffset}
+          intensity={1.9 * keyDistance * keyDistance}
+          color="#fff6ea"
+          angle={0.8}
+          penumbra={0.9}
+          decay={2}
+          castShadow
+          shadow-mapSize={[2048, 2048]}
+          shadow-bias={-0.0004}
+          shadow-normalBias={0.6}
+          shadow-camera-near={extent * 0.3}
+          shadow-camera-far={extent * 6}
+          shadow-radius={8}
+        />
+        <directionalLight position={[-extent, extent * 0.6, extent * 0.5]} intensity={0.55} color="#eef2f8" />
+        <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.7} color="#ffffff" />
+        <ContactShadows
+          position={[0, 0.02, 0]}
+          opacity={0.32}
+          scale={Math.max(width, visible) * 3}
+          blur={2.6}
+          far={Math.max(40, height + 20)}
+          resolution={1024}
+          color="#3a2a18"
+        />
+      </group>
       <primitive object={mesh} />
-      <ContactShadows
-        position={[0, 0.04, 0]}
-        opacity={0.38}
-        scale={Math.max(width, length) * 2.4}
-        blur={2.4}
-        far={Math.max(40, height + 20)}
-        color="#3f2c18"
-      />
     </>
   );
 }
@@ -100,10 +136,15 @@ export default function TimberPreview({ loops, length }: { loops: ProfileLoops; 
     <Canvas
       className="h-full w-full"
       camera={{ fov: FOV, near: 0.5, far: 8000 }}
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.12 }}
+      shadows="soft"
+      gl={{
+        antialias: true,
+        alpha: true,
+        toneMapping: THREE.NeutralToneMapping,
+        toneMappingExposure: 1.0,
+      }}
       dpr={[1, 2]}
     >
-      <color attach="background" args={['#d6d0c6']} />
       <Scene loops={loops} length={length} />
     </Canvas>
   );

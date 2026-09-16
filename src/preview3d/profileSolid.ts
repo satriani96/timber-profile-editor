@@ -1,7 +1,8 @@
 import paper from 'paper';
 import { PROFILE_LAYER, itemLayerName } from '../canvas/layers';
 
-export const SAMPLE_LENGTH_MM = 300;
+/** Length of the rendered stick; the camera frames the near end and lets the rest run out of shot. */
+export const SAMPLE_LENGTH_MM = 1200;
 const JOIN_TOLERANCE_MM = 1e-3;
 const SAMPLE_STEP_MM = 0.4;
 const MIN_AREA = 1e-4;

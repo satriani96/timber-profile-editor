@@ -35,14 +35,14 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
         role="dialog"
         aria-modal="true"
         aria-labelledby="timber-preview-title"
-        className="flex h-[min(90vh,46rem)] w-[min(96vw,72rem)] flex-col overflow-hidden rounded-lg bg-[#d6d0c6] text-sm text-gray-800 shadow-xl"
+        className="flex h-[min(90vh,46rem)] w-[min(96vw,72rem)] flex-col overflow-hidden rounded-lg bg-white text-sm text-gray-800 shadow-xl"
       >
-        <div className="flex items-center gap-3 border-b border-black/10 bg-white/80 px-5 py-3">
+        <div className="flex items-center gap-3 border-b border-black/10 bg-gray-50 px-5 py-3">
           <h2 id="timber-preview-title" className="text-base font-semibold">
             3D preview
           </h2>
           <p className="min-w-0 flex-1 text-gray-600">
-            {SAMPLE_LENGTH_MM} mm sample, generated from the current drawing
+            Clear pine sample, generated from the current drawing
           </p>
           <button
             type="button"
