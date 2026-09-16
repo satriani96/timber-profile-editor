@@ -1,16 +1,16 @@
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
-const AZIMUTH = (38 * Math.PI) / 180;
-const ELEVATION = (24 * Math.PI) / 180;
-const FOV = 30;
+/** Camera swung towards the face so the end grain reads edge-on and the length runs off to the right. */
+const AZIMUTH = (58 * Math.PI) / 180;
+const ELEVATION = (17 * Math.PI) / 180;
+const FOV = 34;
 /** How much of the length is framed; the rest runs out of the picture. */
-const FRAMED_LENGTH_MM = 280;
+const FRAMED_LENGTH_MM = 320;
 
 function StudioEnvironment() {
   const { gl, scene } = useThree();
@@ -19,7 +19,7 @@ function StudioEnvironment() {
     const envScene = new RoomEnvironment();
     const texture = pmrem.fromScene(envScene, 0.04).texture;
     scene.environment = texture;
-    scene.environmentIntensity = 0.75;
+    scene.environmentIntensity = 0.95;
     envScene.dispose();
     return () => {
       scene.environment = null;
@@ -101,30 +101,14 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
         <spotLight
           target={keyTarget}
           position={keyOffset}
-          intensity={1.9 * keyDistance * keyDistance}
-          color="#fff6ea"
+          intensity={1.3 * keyDistance * keyDistance}
+          color="#ffffff"
           angle={0.8}
           penumbra={0.9}
           decay={2}
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-          shadow-bias={-0.0004}
-          shadow-normalBias={0.6}
-          shadow-camera-near={extent * 0.3}
-          shadow-camera-far={extent * 6}
-          shadow-radius={8}
         />
-        <directionalLight position={[-extent, extent * 0.6, extent * 0.5]} intensity={0.55} color="#eef2f8" />
-        <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.7} color="#ffffff" />
-        <ContactShadows
-          position={[0, 0.02, 0]}
-          opacity={0.32}
-          scale={Math.max(width, visible) * 3}
-          blur={2.6}
-          far={Math.max(40, height + 20)}
-          resolution={1024}
-          color="#3a2a18"
-        />
+        <directionalLight position={[-extent, extent * 0.6, extent * 0.5]} intensity={0.5} color="#eef2f8" />
+        <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.6} color="#ffffff" />
       </group>
       <primitive object={mesh} />
     </>
@@ -136,7 +120,6 @@ export default function TimberPreview({ loops, length }: { loops: ProfileLoops; 
     <Canvas
       className="h-full w-full"
       camera={{ fov: FOV, near: 0.5, far: 8000 }}
-      shadows="soft"
       gl={{
         antialias: true,
         alpha: true,

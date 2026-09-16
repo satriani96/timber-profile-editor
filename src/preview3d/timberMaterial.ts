@@ -11,18 +11,20 @@ import { profileBounds, type ProfileLoops } from './profileSolid';
  * faces show cathedral figure where the profile cuts the rings, and the two always match.
  */
 
-const RING_MM = 3.4;
+const RING_MM = 12.0;
 
 const GLSL_NOISE = /* glsl */ `
 float hash13(vec3 p) {
-  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.x + p.y) * p.z);
 }
+// Value noise with quintic (C2) interpolation: on faces that run almost tangent to the rings a
+// tiny kink in the noise is magnified into a visible step in the figure, so C1 is not enough.
 float vnoise(vec3 x) {
   vec3 i = floor(x);
   vec3 f = fract(x);
-  f = f * f * (3.0 - 2.0 * f);
+  f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
   return mix(
     mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x), mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
     mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x), mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y),
@@ -51,22 +53,24 @@ varying vec3 vWoodPos;
 // Distance from the pith, warped so rings are not perfect circles and drift along the log.
 // The slow sine keeps the mapping monotonic while varying ring width between good and lean years.
 float woodRadius(vec3 p) {
-  float warp = (fbm(p * vec3(0.012, 0.012, 0.002)) - 0.5) * 3.0;
-  float drift = (fbm(vec3(p.z * 0.004, 3.7, 1.3)) - 0.5) * 5.0;
+  float warp = (fbm(p * vec3(0.01, 0.01, 0.0016)) - 0.5) * 4.0;
+  float ripple = (fbm(p * vec3(0.06, 0.06, 0.012)) - 0.5) * 1.4;
+  float drift = (fbm(vec3(p.z * 0.0035, 3.7, 1.3)) - 0.5) * 9.0;
   // Grain runs about a degree off the length of the piece, as it does in sawn timber.
-  float r = length(p.xy - uPith) + warp + drift + p.z * 0.02;
-  return r + 2.0 * sin(r * 0.11) + 0.8 * sin(r * 0.31 + 1.7);
+  float r = length(p.xy - uPith) + warp + ripple + drift + p.z * 0.03;
+  return r + 3.0 * sin(r * 0.05) + 1.2 * sin(r * 0.17 + 1.7);
 }
 
-// Latewood weight in 0..1. Earlywood is wide and pale, latewood narrower and a little darker,
-// with soft edges the way planed pine photographs. aa widens the transitions by the pixel footprint.
+// Latewood weight in 0..1. Earlywood is wide and pale; latewood darkens gradually and then
+// stops at the ring boundary, giving the soft flame figure of planed pine. aa widens the
+// transitions by the pixel footprint so distant rings do not shimmer.
 float woodLatewood(float r, float aa) {
   float ring = floor(r / RING_MM);
   float phase = fract(r / RING_MM);
-  float start = 0.42 + 0.2 * hash13(vec3(ring, 2.7, 9.1));
+  float start = 0.3 + 0.2 * hash13(vec3(ring, 2.7, 9.1));
   float depth = 0.7 + 0.3 * hash13(vec3(ring, 8.3, 0.4));
-  float late = smoothstep(start - aa, 0.86 + aa, phase) * (1.0 - smoothstep(0.86 - aa, 1.0 + aa, phase));
-  // Fade to the average once rings are thinner than a pixel so they do not shimmer.
+  // Earlywood blends slowly into latewood; the ring boundary on the far side is crisper.
+  float late = smoothstep(start - 0.12 - aa, 0.85 + aa, phase) * (1.0 - smoothstep(0.9 - aa, 1.0, phase));
   return mix(late * depth, 0.3, smoothstep(0.35, 1.2, aa));
 }
 
@@ -107,9 +111,9 @@ const GLSL_WOOD_EVAL = /* glsl */ `
 
   // Large, slow colour drift along the board (heart/sap tint, mineral streaks).
   float tint = fbm(vec3(vWoodPos.x * 0.03, vWoodPos.y * 0.03, vWoodPos.z * 0.0025)) - 0.5;
-  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * 0.9 + woodFib * 0.1, 0.0, 1.0));
-  woodColor *= 1.0 + tint * vec3(0.1, 0.06, 0.0);
-  woodColor *= 1.0 + woodFib * vec3(0.08, 0.1, 0.14);
+  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * 0.9 + woodFib * 0.06, 0.0, 1.0));
+  woodColor *= 1.0 + tint * vec3(0.08, 0.05, 0.0);
+  woodColor *= 1.0 + woodFib * vec3(0.04, 0.05, 0.08);
 
   // Latewood is denser and slightly glossier than the soft, absorbent earlywood.
   float woodRough = clamp(0.62 - woodLate * 0.15 + woodFib * 0.1, 0.35, 0.9);
@@ -140,13 +144,16 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
     specularIntensity: 0.5,
   });
 
+  // The pith sits out beyond the camera-side face (the piece is centred on x, so that face is
+  // at +width/2), level with the upper part of the piece. Only a handful of rings then cross
+  // the visible face, near-tangent, giving the broad flat-sawn flame figure of clear pine,
+  // while the end grain shows the same rings as arcs.
+  const pithDistance = Math.max(60, 1.1 * Math.max(width, height));
   const uniforms = {
-    // The pith sits above and slightly to one side of the piece: rings arc across the end
-    // grain and the wide face shows flat-sawn cathedral figure.
-    uPith: { value: new THREE.Vector2(-width * 0.4, height + Math.max(150, width * 0.45, height * 0.9)) },
-    uEarlywood: { value: new THREE.Color('#f3e8d0').convertSRGBToLinear() },
-    uLatewood: { value: new THREE.Color('#cfae7e').convertSRGBToLinear() },
-    uBumpScale: { value: 0.25 },
+    uPith: { value: new THREE.Vector2(width / 2 + pithDistance * 0.8, height * 0.7) },
+    uEarlywood: { value: new THREE.Color('#ece4d6').convertSRGBToLinear() },
+    uLatewood: { value: new THREE.Color('#bfa688').convertSRGBToLinear() },
+    uBumpScale: { value: 0.2 },
   };
 
   material.onBeforeCompile = (shader) => {

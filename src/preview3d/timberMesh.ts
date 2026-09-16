@@ -27,10 +27,7 @@ export function createTimberMesh(loops: ProfileLoops, length: number): THREE.Mes
   geometry.deleteAttribute('uv');
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
 
-  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+  return new THREE.Mesh(geometry, createTimberMaterial(loops));
 }
 
 export function disposeTimberMesh(mesh: THREE.Mesh): void {
