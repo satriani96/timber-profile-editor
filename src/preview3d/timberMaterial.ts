@@ -6,9 +6,10 @@ import { profileBounds, type ProfileLoops } from './profileSolid';
  *
  * Instead of wrapping a flat picture around the extrusion, the shader models the log the
  * sample was cut from: concentric growth rings around a pith that sits above the piece,
- * distorted by low-frequency noise, with fine fibres running along the length. Because
+ * distorted by low-frequency noise, with fine fibres running along the log. Because
  * the grain is evaluated in 3D at every surface point, end grain shows the ring arcs,
  * faces show cathedral figure where the profile cuts the rings, and the two always match.
+ * Long grain follows the extrusion; cross grain rotates that log axis 90°.
  */
 
 const RING_MM = 7.0;
@@ -18,6 +19,9 @@ const RING_MM = 7.0;
  * the three looks share one shader.
  */
 export type GrainStyle = 'crown' | 'flat' | 'quarter';
+
+/** Fibre direction relative to the extrusion. Independent of the sawn cut. */
+export type GrainDirection = 'long' | 'cross';
 
 const GRAIN_STYLES: Record<GrainStyle, { pithFactor: number; pithLift: number; seed: THREE.Vector3 }> = {
   // Pith close to the face: big sweeping cathedrals.
@@ -64,6 +68,7 @@ uniform vec3 uEarlywood;
 uniform vec3 uLatewood;
 uniform float uBumpScale;
 uniform vec3 uSeed;
+uniform float uGrainCross;
 uniform float uPrimed;
 uniform vec3 uPrimer;
 varying vec3 vWoodPos;
@@ -145,19 +150,24 @@ vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirect
 `;
 
 const GLSL_WOOD_EVAL = /* glsl */ `
-  vec3 woodDx = dFdx(vWoodPos);
-  vec3 woodDy = dFdy(vWoodPos);
+  // Cross grain swaps X and Z so the log axis runs across the profile instead of along it.
+  vec3 woodP = mix(vWoodPos, vWoodPos.zyx, uGrainCross);
+  vec3 woodN = mix(vWoodNormal, vWoodNormal.zyx, uGrainCross);
+  vec3 woodDx = dFdx(woodP);
+  vec3 woodDy = dFdy(woodP);
   float woodPx = max(length(woodDx), length(woodDy));
   // End grain: cut across the fibres it is rougher, soaks up light and shows the rings as
   // crisp lines, which is what makes the profile shape read at a glance.
-  float endGrain = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
-  float woodR = woodRadius(vWoodPos);
+  float endGrain = smoothstep(0.55, 0.9, abs(normalize(woodN).z));
+  // Primer follows the sample's sawn ends (world Z), not the rotated fibre axis.
+  float cutEnd = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
+  float woodR = woodRadius(woodP);
   float woodAA = fwidth(woodR) / RING_MM;
   float woodLate = woodLatewood(woodR, woodAA, endGrain);
-  float woodFib = woodFibre(vWoodPos, woodPx);
+  float woodFib = woodFibre(woodP, woodPx);
 
   // Large, slow colour drift along the board (heart/sap tint, mineral streaks).
-  float tint = fbm(vec3(vWoodPos.x * 0.03, vWoodPos.y * 0.03, vWoodPos.z * 0.0025)) - 0.5;
+  float tint = fbm(vec3(woodP.x * 0.03, woodP.y * 0.03, woodP.z * 0.0025)) - 0.5;
   // Face bands stay soft and translucent-looking; end grain gets the full ring contrast.
   float bandWeight = mix(0.92, 1.0, endGrain);
   vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.06, 0.0, 1.0));
@@ -178,15 +188,15 @@ const GLSL_WOOD_EVAL = /* glsl */ `
 
   // No relief on the arrises: the finite-difference bump is unstable where the normal turns
   // fast and only adds noise to an edge that should read as a clean highlight.
-  float woodH0 = woodHeight(vWoodPos, woodAA, woodPx, endGrain, endGrain);
+  float woodH0 = woodHeight(woodP, woodAA, woodPx, endGrain, endGrain);
   vec2 woodDHdxy = vec2(
-    woodHeight(vWoodPos + woodDx, woodAA, woodPx, endGrain, endGrain) - woodH0,
-    woodHeight(vWoodPos + woodDy, woodAA, woodPx, endGrain, endGrain) - woodH0
+    woodHeight(woodP + woodDx, woodAA, woodPx, endGrain, endGrain) - woodH0,
+    woodHeight(woodP + woodDy, woodAA, woodPx, endGrain, endGrain) - woodH0
   ) * uBumpScale * (1.0 - arris);
 
   // Primed finish: the machined faces carry a coat of matte primer while the cut ends stay
   // bare timber. Primer fills most of the grain, so only a faint ghost of the relief remains.
-  float primed = uPrimed * (1.0 - endGrain);
+  float primed = uPrimed * (1.0 - cutEnd);
   vec3 primerColor = uPrimer * (1.0 + woodFib * 0.03 + woodLate * 0.015);
   woodColor = mix(woodColor, primerColor, primed);
   woodRough = mix(woodRough, 0.82 - arris * 0.15, primed);
@@ -200,13 +210,16 @@ varying vec3 vWoodNormal;
 
 export function createTimberMaterial(
   loops: ProfileLoops,
+  length: number,
   style: GrainStyle = 'flat',
-  primed = false
+  primed = false,
+  direction: GrainDirection = 'long'
 ): THREE.MeshPhysicalMaterial {
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
   const grain = GRAIN_STYLES[style];
+  const woodWidth = direction === 'cross' ? length : width;
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -223,11 +236,11 @@ export function createTimberMaterial(
   // beyond the wider face: above a flat moulding, or beyond the camera-side (+x) face of a
   // standing one. Only a handful of rings then cross that face, near-tangent, giving the
   // broad flame figure of clear pine, while the end grain shows the same rings as arcs.
-  const pithDistance = Math.max(60, grain.pithFactor * Math.max(width, height));
+  const pithDistance = Math.max(60, grain.pithFactor * Math.max(woodWidth, height));
   const pith =
-    width >= height
-      ? new THREE.Vector2(width * 0.2, height + pithDistance * grain.pithLift)
-      : new THREE.Vector2(width / 2 + pithDistance * grain.pithLift, height * 0.7);
+    woodWidth >= height
+      ? new THREE.Vector2(woodWidth * 0.2, height + pithDistance * grain.pithLift)
+      : new THREE.Vector2(woodWidth / 2 + pithDistance * grain.pithLift, height * 0.7);
   // The shader samples everything at position + seed, so shift the pith by the same amount.
   pith.x += grain.seed.x;
   pith.y += grain.seed.y;
@@ -239,6 +252,7 @@ export function createTimberMaterial(
     uEarlywood: { value: new THREE.Color('#e2cfa3') },
     uLatewood: { value: new THREE.Color('#bf955a') },
     uBumpScale: { value: 0.35 },
+    uGrainCross: { value: direction === 'cross' ? 1 : 0 },
     uPrimed: { value: primed ? 1 : 0 },
     // Factory primer: a soft warm white rather than a paper white.
     uPrimer: { value: new THREE.Color('#e3e0d8') },
@@ -259,6 +273,6 @@ export function createTimberMaterial(
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'
       );
   };
-  material.customProgramCacheKey = () => 'timber-pine-solid-v4';
+  material.customProgramCacheKey = () => 'timber-pine-solid-v5';
   return material;
 }
