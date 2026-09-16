@@ -1,7 +1,9 @@
-import { useLayoutEffect, useMemo, useState } from 'react';
+import { Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
+import { Environment } from '@react-three/drei';
+import { DepthOfField, EffectComposer, N8AO, Noise, Vignette } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
@@ -9,39 +11,18 @@ import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 const AZIMUTH = (45 * Math.PI) / 180;
 const ELEVATION = (14 * Math.PI) / 180;
 const FOV = 35;
+const NEAR = 5;
+const FAR = 6000;
+/** Small photographic studio, CC0 from Poly Haven; shipped locally so the preview has no CDN dependency. */
+const STUDIO_HDR = '/hdr/studio_small_09_1k.hdr';
 
-function StudioEnvironment() {
-  const { gl, scene } = useThree();
-  useLayoutEffect(() => {
-    const pmrem = new THREE.PMREMGenerator(gl);
-    const envScene = new RoomEnvironment();
-    const texture = pmrem.fromScene(envScene, 0.04).texture;
-    scene.environment = texture;
-    scene.environmentIntensity = 0.8;
-    envScene.dispose();
-    return () => {
-      scene.environment = null;
-      scene.environmentIntensity = 1;
-      texture.dispose();
-      pmrem.dispose();
-    };
-  }, [gl, scene]);
-  return null;
-}
-
-function FramedCamera({
-  target,
-  radius,
-}: {
-  target: THREE.Vector3;
-  radius: number;
-}) {
+function FramedCamera({ target, radius }: { target: THREE.Vector3; radius: number }) {
   const { camera, size } = useThree();
   useLayoutEffect(() => {
     const perspective = camera as THREE.PerspectiveCamera;
     perspective.fov = FOV;
-    perspective.near = 0.5;
-    perspective.far = 8000;
+    perspective.near = NEAR;
+    perspective.far = FAR;
     const fov = (FOV * Math.PI) / 180;
     const aspect = size.width / size.height;
     const fit = radius * 1.12;
@@ -77,32 +58,49 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
   const target = useMemo(() => new THREE.Vector3(0, height / 2, 0), [height]);
   const radius = Math.hypot(width, height, length) * 0.4;
   const extent = Math.max(width, height, length);
-  // Physically based spot: intensity scales with distance² so the piece reads the same at any size.
-  // It sits up and to the camera's right so the face carries a gentle fall-off along its length.
-  const keyOffset: [number, number, number] = [extent * 1.3, extent * 1.5, extent * 1.2];
-  const keyDistance = Math.hypot(...keyOffset);
-  // A spot aims at an Object3D that must live in the scene for its matrix to update.
-  const keyTarget = useMemo(() => new THREE.Object3D(), []);
+  // Focus on the near end so the far end drifts gently soft, as a macro lens would.
+  const focus = useMemo(() => new THREE.Vector3(width / 2, height / 2, length * 0.25), [width, height, length]);
+
+  // Softbox key up and to the camera's right. A directional light with an orthographic shadow
+  // camera sized to the piece gives even coverage (no cone edge) and lets the rebates and
+  // undercuts shade themselves.
+  const keyPosition: [number, number, number] = [extent * 1.1, extent * 1.4, extent * 0.9];
 
   if (!mesh) return null;
 
   return (
     <>
       <FramedCamera target={target} radius={radius} />
-      <StudioEnvironment />
-      <primitive object={keyTarget} position={[0, height / 2, 0]} />
-      <spotLight
-        target={keyTarget}
-        position={keyOffset}
-        intensity={1.0 * keyDistance * keyDistance}
+      {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
+          layout effects) is not torn down and re-run while the file streams in. */}
+      <Suspense fallback={null}>
+        <Environment files={STUDIO_HDR} environmentIntensity={0.9} environmentRotation={[0, Math.PI * 0.35, 0]} />
+      </Suspense>
+      <directionalLight
+        position={keyPosition}
+        intensity={1.4}
         color="#fffaf3"
-        angle={0.6}
-        penumbra={0.9}
-        decay={2}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0006}
+        shadow-normalBias={1.2}
+        shadow-radius={5}
+        shadow-blurSamples={12}
+        shadow-camera-near={extent * 0.5}
+        shadow-camera-far={extent * 4}
+        shadow-camera-left={-extent * 0.7}
+        shadow-camera-right={extent * 0.7}
+        shadow-camera-top={extent * 0.7}
+        shadow-camera-bottom={-extent * 0.7}
       />
-      <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.35} color="#f2f4f8" />
-      <directionalLight position={[extent * 0.3, extent * 0.9, -extent * 1.4]} intensity={0.3} color="#ffffff" />
+      <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.3} color="#f2f4f8" />
       <primitive object={mesh} />
+      <EffectComposer multisampling={4}>
+        <N8AO aoRadius={extent * 0.06} distanceFalloff={extent * 0.12} intensity={1.6} quality="medium" halfRes />
+        <DepthOfField target={focus} worldFocusRange={extent * 0.45} bokehScale={1.6} />
+        <Noise premultiply blendFunction={BlendFunction.SOFT_LIGHT} opacity={0.06} />
+        <Vignette eskil={false} offset={0.25} darkness={0.3} />
+      </EffectComposer>
     </>
   );
 }
@@ -111,15 +109,16 @@ export default function TimberPreview({ loops, length }: { loops: ProfileLoops; 
   return (
     <Canvas
       className="h-full w-full"
-      camera={{ fov: FOV, near: 0.5, far: 8000 }}
+      camera={{ fov: FOV, near: NEAR, far: FAR }}
+      shadows="variance"
       gl={{
-        antialias: true,
-        alpha: true,
+        antialias: false,
         toneMapping: THREE.NeutralToneMapping,
-        toneMappingExposure: 1.0,
+        toneMappingExposure: 1.1,
       }}
       dpr={[1, 2]}
     >
+      <color attach="background" args={['#ffffff']} />
       <Scene loops={loops} length={length} />
     </Canvas>
   );

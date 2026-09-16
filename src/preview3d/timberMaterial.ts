@@ -78,18 +78,34 @@ float woodLatewood(float r, float aa, float crisp) {
 }
 
 // Fine fibres stretched along the length plus resin/pore speckle. px is the surface
-// footprint of one pixel in mm; detail finer than that is faded out rather than aliased.
+// footprint of one pixel in mm; each layer fades out as it approaches pixel size so it
+// averages away instead of aliasing.
 float woodFibre(vec3 p, float px) {
   float f = fbm(vec3(p.x * 0.7, p.y * 0.7, p.z * 0.03));
   float streaks = vnoise(vec3(p.x * 0.65, p.y * 0.65, p.z * 0.008));
+  float hairlines = vnoise(vec3(p.x * 1.9, p.y * 1.9, p.z * 0.006)) + vnoise(vec3(p.x * 3.3 + 7.0, p.y * 3.3, p.z * 0.009)) - 1.0;
   float pores = vnoise(vec3(p.x * 2.4, p.y * 2.4, p.z * 0.09));
   float fibreFade = 1.0 - 0.7 * smoothstep(0.4, 2.5, px);
-  float fineFade = 1.0 - smoothstep(0.12, 0.5, px);
-  return (f - 0.5) * fibreFade + ((streaks - 0.5) * 0.7 + (pores - 0.5) * 0.3) * fineFade;
+  float streakFade = 1.0 - smoothstep(0.4, 1.2, px);
+  float fineFade = 1.0 - smoothstep(0.15, 0.6, px);
+  return (f - 0.5) * fibreFade
+    + (streaks - 0.5) * 0.7 * streakFade
+    + (hairlines * 0.5 + (pores - 0.5) * 0.3) * fineFade;
 }
 
-float woodHeight(vec3 p, float aa, float px, float crisp) {
-  return woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.45;
+// Planer / moulder knife marks: shallow ripples running across the grain at a regular pitch
+// that wanders slightly, as left by a rotating cutter head. Only visible in the relief.
+float planerMarks(vec3 p, float px) {
+  float pitch = 2.6;
+  float wander = (vnoise(vec3(p.z * 0.02, p.y * 0.05, 2.0)) - 0.5) * 1.5;
+  float ripple = 0.5 + 0.5 * cos((p.z + wander) * 6.2831853 / pitch);
+  float knifeVar = 0.7 + 0.3 * vnoise(vec3(p.z * 0.09, 5.5, 1.0));
+  return ripple * knifeVar * (1.0 - smoothstep(0.5, 1.3, px));
+}
+
+float woodHeight(vec3 p, float aa, float px, float crisp, float endGrain) {
+  float relief = woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.45;
+  return relief + planerMarks(p, px) * 0.14 * (1.0 - endGrain);
 }
 
 vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
@@ -119,16 +135,17 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float tint = fbm(vec3(vWoodPos.x * 0.03, vWoodPos.y * 0.03, vWoodPos.z * 0.0025)) - 0.5;
   vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * 0.9 + woodFib * 0.06, 0.0, 1.0));
   woodColor *= 1.0 + tint * vec3(0.08, 0.05, 0.0);
-  woodColor *= 1.0 + woodFib * vec3(0.09, 0.11, 0.15);
+  woodColor *= 1.0 + woodFib * vec3(0.11, 0.13, 0.18);
   woodColor *= mix(1.0, 0.8, endGrain);
 
-  // Latewood is denser and slightly glossier than the soft, absorbent earlywood.
-  float woodRough = clamp(0.78 - woodLate * 0.12 + woodFib * 0.1 + endGrain * 0.15, 0.45, 0.95);
+  // Latewood is denser and slightly glossier than the soft, absorbent earlywood; the fibre
+  // detail breaks the highlight up so it never reads as a single smooth sheet.
+  float woodRough = clamp(0.72 - woodLate * 0.12 + woodFib * 0.22 + endGrain * 0.15, 0.4, 0.95);
 
-  float woodH0 = woodHeight(vWoodPos, woodAA, woodPx, endGrain);
+  float woodH0 = woodHeight(vWoodPos, woodAA, woodPx, endGrain, endGrain);
   vec2 woodDHdxy = vec2(
-    woodHeight(vWoodPos + woodDx, woodAA, woodPx, endGrain) - woodH0,
-    woodHeight(vWoodPos + woodDy, woodAA, woodPx, endGrain) - woodH0
+    woodHeight(vWoodPos + woodDx, woodAA, woodPx, endGrain, endGrain) - woodH0,
+    woodHeight(vWoodPos + woodDy, woodAA, woodPx, endGrain, endGrain) - woodH0
   ) * uBumpScale;
 `;
 
@@ -144,9 +161,13 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.78,
+    roughness: 0.72,
     metalness: 0,
-    specularIntensity: 0.3,
+    specularIntensity: 0.35,
+    // Highlights stretch along the fibres. The mesh UVs put u along the length so the
+    // anisotropy tangent follows the grain on every face.
+    anisotropy: 0.55,
+    anisotropyRotation: 0,
   });
 
   // Boards are flat-sawn with the wide face tangential to the rings, so the pith sits out
@@ -164,7 +185,7 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
     // converts hex (sRGB) into the linear working space, so no further conversion here.
     uEarlywood: { value: new THREE.Color('#e2cfa3') },
     uLatewood: { value: new THREE.Color('#b6935f') },
-    uBumpScale: { value: 0.2 },
+    uBumpScale: { value: 0.35 },
   };
 
   material.onBeforeCompile = (shader) => {
@@ -182,6 +203,6 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'
       );
   };
-  material.customProgramCacheKey = () => 'timber-pine-solid-v1';
+  material.customProgramCacheKey = () => 'timber-pine-solid-v2';
   return material;
 }

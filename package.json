@@ -15,9 +15,12 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "@react-three/postprocessing": "^3.1.1",
     "@tarikjabiri/dxf": "^2.8.9",
+    "n8ao": "^2.0.1",
     "paper": "^0.12.18",
     "paperjs-round-corners": "^0.0.10",
+    "postprocessing": "^6.39.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.186.0"

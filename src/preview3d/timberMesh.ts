@@ -24,10 +24,40 @@ export function createTimberMesh(loops: ProfileLoops, length: number): THREE.Mes
   });
   const geometry = toCreasedNormals(extruded, CREASE_ANGLE);
   extruded.dispose();
-  geometry.deleteAttribute('uv');
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
+  geometry.setAttribute('uv', grainUvs(geometry));
 
-  return new THREE.Mesh(geometry, createTimberMaterial(loops));
+  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops));
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/**
+ * UVs exist only to give the anisotropic highlight a tangent frame: u runs along the grain
+ * (the length) on every long face, and across the end caps where the fibres are cut.
+ */
+function grainUvs(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
+  const pos = geometry.getAttribute('position');
+  const nrm = geometry.getAttribute('normal');
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const nx = nrm.getX(i);
+    const ny = nrm.getY(i);
+    const nz = nrm.getZ(i);
+    if (Math.abs(nz) > 0.7) {
+      uv[i * 2] = x * 0.01;
+      uv[i * 2 + 1] = y * 0.01;
+    } else {
+      // In-plane direction perpendicular to the length for v, so the frame is never degenerate.
+      uv[i * 2] = z * 0.01;
+      uv[i * 2 + 1] = (x * -ny + y * nx) * 0.01;
+    }
+  }
+  return new THREE.BufferAttribute(uv, 2);
 }
 
 export function disposeTimberMesh(mesh: THREE.Mesh): void {
