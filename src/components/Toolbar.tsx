@@ -13,6 +13,8 @@ interface ToolbarProps {
   onOpenLibrary?: () => void;
   onSaveLibrary?: () => void;
   nsBusy?: boolean;
+  onTogglePreview3d?: () => void;
+  preview3dOpen?: boolean;
 }
 
 const ToolButton: React.FC<{
@@ -95,6 +97,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenLibrary,
   onSaveLibrary,
   nsBusy,
+  onTogglePreview3d,
+  preview3dOpen,
 }) => {
   const tool = (id: SketchTool) => ({ isActive: activeTool === id, onClick: () => setActiveTool(id) });
 
@@ -227,6 +231,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
       </FileButton>
 
       <div className="flex-grow" />
+
+      {onTogglePreview3d && (
+        <button
+          type="button"
+          onClick={onTogglePreview3d}
+          aria-pressed={Boolean(preview3dOpen)}
+          className={`px-3 py-1 rounded-md flex items-center space-x-1 ${
+            preview3dOpen ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-600 hover:bg-gray-500 text-white'
+          }`}
+          title="Show a 3D timber sample of the current profile"
+        >
+          <span>3D</span>
+        </button>
+      )}
 
       <FileButton
         label="Import DXF / TCW"

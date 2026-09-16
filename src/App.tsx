@@ -3,6 +3,7 @@ import type { SketchTool } from './types';
 import Toolbar from './components/Toolbar';
 import StatusToast from './components/StatusToast';
 import ProfileLibraryDialog from './components/ProfileLibraryDialog';
+import TimberPreviewPanel from './components/TimberPreviewPanel';
 import SketchCanvas, { type SketchCanvasHandle } from './components/SketchCanvas';
 import {
   listProfileSheets,
@@ -32,6 +33,7 @@ function App() {
   const [libraryMode, setLibraryMode] = useState<'open' | 'save' | null>(null);
   const [librarySheets, setLibrarySheets] = useState<ProfileSheetListItem[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [preview3dOpen, setPreview3dOpen] = useState(false);
 
   useEffect(() => {
     const id = sheetIdFromUrl();
@@ -130,6 +132,8 @@ function App() {
           onOpenLibrary={() => void openLibrary('open')}
           onSaveLibrary={() => void openLibrary('save')}
           nsBusy={nsBusy}
+          onTogglePreview3d={() => setPreview3dOpen((open) => !open)}
+          preview3dOpen={preview3dOpen}
         />
       </div>
 
@@ -155,6 +159,7 @@ function App() {
           onClose={closeLibrary}
         />
       )}
+      {preview3dOpen && <TimberPreviewPanel onClose={() => setPreview3dOpen(false)} />}
       <StatusToast message={status} onDismiss={() => setStatus(null)} />
     </div>
   );
