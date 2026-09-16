@@ -1,8 +1,7 @@
 import { Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
-import { DepthOfField, EffectComposer, N8AO, Noise, Vignette } from '@react-three/postprocessing';
-import { BlendFunction } from 'postprocessing';
+import { DepthOfField, EffectComposer, N8AO, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
@@ -10,7 +9,8 @@ import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 /** 45° product view from a little above: end grain on the left, moulded face towards the camera. */
 const AZIMUTH = (45 * Math.PI) / 180;
 const ELEVATION = (14 * Math.PI) / 180;
-const FOV = 35;
+/** ~85 mm-equivalent lens: the camera sits back so the piece keeps its width end to end, as catalogue shots of linear stock do. */
+const FOV = 16;
 const NEAR = 5;
 const FAR = 6000;
 /** Small photographic studio, CC0 from Poly Haven; shipped locally so the preview has no CDN dependency. */
@@ -96,9 +96,9 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
       <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.3} color="#f2f4f8" />
       <primitive object={mesh} />
       <EffectComposer multisampling={4}>
-        <N8AO aoRadius={extent * 0.06} distanceFalloff={extent * 0.12} intensity={1.6} quality="medium" halfRes />
-        <DepthOfField target={focus} worldFocusRange={extent * 0.45} bokehScale={1.6} />
-        <Noise premultiply blendFunction={BlendFunction.SOFT_LIGHT} opacity={0.06} />
+        <N8AO aoRadius={extent * 0.06} distanceFalloff={extent * 0.12} intensity={1.6} quality="medium" />
+        {/* Barely-there focus fall-off: the whole piece stays sharp, the far end just loses its edge. */}
+        <DepthOfField target={focus} worldFocusRange={extent * 1.3} bokehScale={0.8} resolutionScale={1} />
         <Vignette eskil={false} offset={0.25} darkness={0.3} />
       </EffectComposer>
     </>
@@ -116,7 +116,9 @@ export default function TimberPreview({ loops, length }: { loops: ProfileLoops; 
         toneMapping: THREE.NeutralToneMapping,
         toneMappingExposure: 1.1,
       }}
-      dpr={[1, 2]}
+      // Always render at 2x: on a 1x display this is supersampling, which is what sharpens the
+      // fine grain and the arrises. The panel is small enough for this to be cheap.
+      dpr={2}
     >
       <color attach="background" args={['#ffffff']} />
       <Scene loops={loops} length={length} />

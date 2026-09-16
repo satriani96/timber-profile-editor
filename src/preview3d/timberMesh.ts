@@ -9,7 +9,7 @@ const CREASE_ANGLE = (32 * Math.PI) / 180;
 
 export function createTimberMesh(loops: ProfileLoops, length: number): THREE.Mesh {
   const bounds = profileBounds(loops);
-  const arris = Math.min(0.8, 0.04 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
+  const arris = Math.min(1.0, 0.05 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
   const toVec = (point: { x: number; y: number }) => new THREE.Vector2(point.x, point.y);
   const shape = new THREE.Shape(softenArrises(loops.outer, arris).map(toVec));
   for (const hole of loops.holes) {

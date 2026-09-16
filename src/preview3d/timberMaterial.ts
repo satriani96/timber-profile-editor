@@ -57,8 +57,11 @@ float woodRadius(vec3 p) {
   float warp = (fbm(p * vec3(0.01, 0.01, 0.0016)) - 0.5) * 4.0;
   float ripple = (fbm(p * vec3(0.06, 0.06, 0.012)) - 0.5) * 1.4;
   float drift = (fbm(vec3(p.z * 0.0035, 3.7, 1.3)) - 0.5) * 9.0;
+  // Fibre-scale raggedness so latewood edges tear along the grain instead of drawing a clean curve.
+  float rag = (vnoise(vec3(p.x * 1.3, p.y * 1.3, p.z * 0.06)) - 0.5) * 0.7
+    + (vnoise(vec3(p.x * 0.45 + 3.0, p.y * 0.45, p.z * 0.025)) - 0.5) * 1.2;
   // Grain runs about a degree off the length of the piece, as it does in sawn timber.
-  float r = length(p.xy - uPith) + warp + ripple + drift + p.z * 0.03;
+  float r = length(p.xy - uPith) + warp + ripple + drift + rag + p.z * 0.03;
   return r + 3.0 * sin(r * 0.05) + 1.2 * sin(r * 0.17 + 1.7);
 }
 
@@ -141,6 +144,11 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // Latewood is denser and slightly glossier than the soft, absorbent earlywood; the fibre
   // detail breaks the highlight up so it never reads as a single smooth sheet.
   float woodRough = clamp(0.72 - woodLate * 0.12 + woodFib * 0.22 + endGrain * 0.15, 0.4, 0.95);
+  // Softened arrises: the normal swings quickly across a few pixels there. The cutter leaves
+  // those edges burnished, so they catch a brighter, tighter highlight than the flat faces.
+  float arris = smoothstep(0.04, 0.25, length(fwidth(vWoodNormal)));
+  woodRough = mix(woodRough, 0.32, arris * 0.7);
+  woodColor *= 1.0 + arris * 0.06;
 
   float woodH0 = woodHeight(vWoodPos, woodAA, woodPx, endGrain, endGrain);
   vec2 woodDHdxy = vec2(
