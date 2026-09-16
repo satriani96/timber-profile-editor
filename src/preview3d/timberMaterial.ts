@@ -144,13 +144,17 @@ export function createTimberMaterial(loops: ProfileLoops): THREE.MeshPhysicalMat
     specularIntensity: 0.5,
   });
 
-  // The pith sits out beyond the camera-side face (the piece is centred on x, so that face is
-  // at +width/2), level with the upper part of the piece. Only a handful of rings then cross
-  // the visible face, near-tangent, giving the broad flat-sawn flame figure of clear pine,
-  // while the end grain shows the same rings as arcs.
+  // Boards are flat-sawn with the wide face tangential to the rings, so the pith sits out
+  // beyond the wider face: above a flat moulding, or beyond the camera-side (+x) face of a
+  // standing one. Only a handful of rings then cross that face, near-tangent, giving the
+  // broad flame figure of clear pine, while the end grain shows the same rings as arcs.
   const pithDistance = Math.max(60, 1.1 * Math.max(width, height));
+  const pith =
+    width >= height
+      ? new THREE.Vector2(width * 0.2, height + pithDistance * 0.8)
+      : new THREE.Vector2(width / 2 + pithDistance * 0.8, height * 0.7);
   const uniforms = {
-    uPith: { value: new THREE.Vector2(width / 2 + pithDistance * 0.8, height * 0.7) },
+    uPith: { value: pith },
     uEarlywood: { value: new THREE.Color('#ece4d6').convertSRGBToLinear() },
     uLatewood: { value: new THREE.Color('#bfa688').convertSRGBToLinear() },
     uBumpScale: { value: 0.2 },

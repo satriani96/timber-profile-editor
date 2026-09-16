@@ -5,12 +5,12 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
-/** Camera swung towards the face so the end grain reads edge-on and the length runs off to the right. */
-const AZIMUTH = (58 * Math.PI) / 180;
-const ELEVATION = (17 * Math.PI) / 180;
-const FOV = 34;
+/** Three-quarter product view: end grain and both visible faces read clearly, length runs off to the right. */
+const AZIMUTH = (38 * Math.PI) / 180;
+const ELEVATION = (24 * Math.PI) / 180;
+const FOV = 30;
 /** How much of the length is framed; the rest runs out of the picture. */
-const FRAMED_LENGTH_MM = 320;
+const FRAMED_LENGTH_MM = 280;
 
 function StudioEnvironment() {
   const { gl, scene } = useThree();
