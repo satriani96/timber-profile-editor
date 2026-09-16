@@ -1,9 +1,10 @@
 import { Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
-import { DepthOfField, EffectComposer, N8AO, Vignette } from '@react-three/postprocessing';
+import { ContactShadows, Environment } from '@react-three/drei';
+import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
+import type { GrainStyle } from './timberMaterial';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 
 /** 45° product view from a little above: end grain on the left, moulded face towards the camera. */
@@ -38,16 +39,16 @@ function FramedCamera({ target, radius }: { target: THREE.Vector3; radius: numbe
   return null;
 }
 
-function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
+function Scene({ loops, length, grain }: { loops: ProfileLoops; length: number; grain: GrainStyle }) {
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
-    const next = createTimberMesh(loops, length);
+    const next = createTimberMesh(loops, length, grain);
     setMesh(next);
     return () => {
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [length, loops]);
+  }, [grain, length, loops]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -58,8 +59,6 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
   const target = useMemo(() => new THREE.Vector3(0, height / 2, 0), [height]);
   const radius = Math.hypot(width, height, length) * 0.4;
   const extent = Math.max(width, height, length);
-  // Focus on the near end so the far end drifts gently soft, as a macro lens would.
-  const focus = useMemo(() => new THREE.Vector3(width / 2, height / 2, length * 0.25), [width, height, length]);
 
   // Softbox key up and to the camera's right. A directional light with an orthographic shadow
   // camera sized to the piece gives even coverage (no cone edge) and lets the rebates and
@@ -95,17 +94,35 @@ function Scene({ loops, length }: { loops: ProfileLoops; length: number }) {
       />
       <directionalLight position={[-extent * 0.6, extent * 0.4, extent * 1.2]} intensity={0.3} color="#f2f4f8" />
       <primitive object={mesh} />
-      <EffectComposer multisampling={4}>
+      {/* Soft pool of shadow directly under the piece, the way a product sits on a white sweep. */}
+      <ContactShadows
+        position={[0, 0.02, 0]}
+        opacity={0.42}
+        scale={[width * 3 + length * 0.4, length * 1.4]}
+        blur={2.4}
+        far={Math.max(30, height * 0.9)}
+        resolution={1024}
+        color="#3a2a16"
+        frames={1}
+      />
+      {/* Ambient occlusion only. The depth-of-field effect writes an opaque alpha channel, which
+          would kill the transparent background, so focus fall-off is left to the lens choice. */}
+      <EffectComposer multisampling={8}>
         <N8AO aoRadius={extent * 0.06} distanceFalloff={extent * 0.12} intensity={1.6} quality="medium" />
-        {/* Barely-there focus fall-off: the whole piece stays sharp, the far end just loses its edge. */}
-        <DepthOfField target={focus} worldFocusRange={extent * 1.3} bokehScale={0.8} resolutionScale={1} />
-        <Vignette eskil={false} offset={0.25} darkness={0.3} />
       </EffectComposer>
     </>
   );
 }
 
-export default function TimberPreview({ loops, length }: { loops: ProfileLoops; length: number }) {
+export default function TimberPreview({
+  loops,
+  length,
+  grain = 'flat',
+}: {
+  loops: ProfileLoops;
+  length: number;
+  grain?: GrainStyle;
+}) {
   return (
     <Canvas
       className="h-full w-full"
@@ -113,15 +130,17 @@ export default function TimberPreview({ loops, length }: { loops: ProfileLoops; 
       shadows="variance"
       gl={{
         antialias: false,
+        alpha: true,
+        premultipliedAlpha: false,
         toneMapping: THREE.NeutralToneMapping,
         toneMappingExposure: 1.1,
       }}
+      onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
       // Always render at 2x: on a 1x display this is supersampling, which is what sharpens the
       // fine grain and the arrises. The panel is small enough for this to be cheap.
       dpr={2}
     >
-      <color attach="background" args={['#ffffff']} />
-      <Scene loops={loops} length={length} />
+      <Scene loops={loops} length={length} grain={grain} />
     </Canvas>
   );
 }

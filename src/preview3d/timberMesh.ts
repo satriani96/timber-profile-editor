@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { softenArrises } from './arris';
-import { createTimberMaterial } from './timberMaterial';
+import { createTimberMaterial, type GrainStyle } from './timberMaterial';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 
 /** Edges meeting at less than this angle are smoothed (sampled arcs); sharper arrises stay crisp. */
 const CREASE_ANGLE = (32 * Math.PI) / 180;
 
-export function createTimberMesh(loops: ProfileLoops, length: number): THREE.Mesh {
+export function createTimberMesh(loops: ProfileLoops, length: number, grain: GrainStyle = 'flat'): THREE.Mesh {
   const bounds = profileBounds(loops);
   const arris = Math.min(1.0, 0.05 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
   const toVec = (point: { x: number; y: number }) => new THREE.Vector2(point.x, point.y);
@@ -27,7 +27,7 @@ export function createTimberMesh(loops: ProfileLoops, length: number): THREE.Mes
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
   geometry.setAttribute('uv', grainUvs(geometry));
 
-  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops));
+  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, grain));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
