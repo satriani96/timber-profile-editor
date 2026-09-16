@@ -176,6 +176,8 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
     handleDragPan,
     setIsSplineDrawing: ctx.setIsSplineDrawing,
     setSplineSegmentCount: ctx.setSplineSegmentCount,
+    getSnapPoint: drawingState.getSnapPoint,
+    snapIndicatorRef: ctx.snapIndicatorRef,
   });
   ctx.fitSplineToolInstanceRef.current = fitSplineTool;
   const fitSplinePaperTool = ensureTool(ctx.fitSplineToolRef);

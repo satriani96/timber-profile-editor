@@ -14,6 +14,9 @@ export interface FitSplineStateManager {
   isSpacebarPanRef: React.MutableRefObject<boolean>;
   handleDragPan: (event: paper.ToolEvent) => void;
   setIsSplineDrawing?: (val: boolean) => void; // Optional setter for React state
+  /** Object snap shared with the other drawing tools; also drives the snap marker. */
+  getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
+  snapIndicatorRef: React.MutableRefObject<paper.Item | null>;
 }
 
 interface SelectedHandle {
@@ -31,10 +34,21 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     isPanningRef,
     isSpacebarPanRef,
     handleDragPan,
+    getSnapPoint,
+    snapIndicatorRef,
   } = stateManager;
 
   // Track selected handle for dragging
   let selectedHandle: SelectedHandle | null = null;
+
+  /** Snap to other geometry (never to the spline being drawn) so splines can start and end on lines. */
+  function snapped(point: paper.Point, ignore: paper.Path | null = currentSplineRef.current): paper.Point {
+    return getSnapPoint(point, ignore) ?? point;
+  }
+
+  function hideSnapMarker() {
+    if (snapIndicatorRef.current) snapIndicatorRef.current.visible = false;
+  }
 
   // --- Drawing mode ---
   function onMouseDown(event: paper.ToolEvent) {
@@ -86,15 +100,16 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         }
         selectedSplinePointRef.current = null;
       }
+      const point = snapped(event.point);
       if (!currentSplineRef.current) {
         // Start a new path
         const path = new paper.Path({
-          segments: [event.point],
+          segments: [point],
           strokeColor: sketchStrokeColor(),
           strokeWidth: sketchStrokeWidth(),
           fullySelected: true,
         });
-        path.data = { isSpline: true, fitPoints: [event.point.clone()] };
+        path.data = { isSpline: true, fitPoints: [point.clone()] };
         assignActiveLayer(path);
         currentSplineRef.current = path;
         // Notify React state
@@ -102,8 +117,8 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         if (stateManager.setSplineSegmentCount)
           stateManager.setSplineSegmentCount(1);
       } else {
-        currentSplineRef.current.add(event.point);
-        currentSplineRef.current.data.fitPoints.push(event.point.clone());
+        currentSplineRef.current.add(point);
+        currentSplineRef.current.data.fitPoints.push(point.clone());
         currentSplineRef.current.fullySelected = true;
         if (stateManager.setSplineSegmentCount && currentSplineRef.current)
           stateManager.setSplineSegmentCount(currentSplineRef.current.segments.length);
@@ -150,10 +165,11 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     // --- Drag fit point if selected ---
     const sel = selectedSplinePointRef.current;
     if (sel && sel.path && sel.path.segments[sel.index]) {
+      const point = snapped(event.point, sel.path);
       // Update the point of the dragged segment
-      sel.path.segments[sel.index].point = event.point;
+      sel.path.segments[sel.index].point = point;
       // Update fitPoints array
-      sel.path.data.fitPoints[sel.index] = event.point.clone();
+      sel.path.data.fitPoints[sel.index] = point.clone();
       // Do not zero handles—allow user to edit them
     }
   }
@@ -164,14 +180,15 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
   function onMouseMove(event: paper.ToolEvent) {
     if (isDrawingSplineRef.current && currentSplineRef.current) {
       const path = currentSplineRef.current;
+      const point = snapped(event.point);
       // Only preview if at least one real point exists
       if (path.segments.length > 0) {
         // If a preview segment already exists, update its point
         if (previewSegment) {
-          previewSegment.point = event.point;
+          previewSegment.point = point;
         } else {
           // Add a preview segment to the path
-          const added = path.add(event.point);
+          const added = path.add(point);
           // Ensure preview segment strokeWidth scales with zoom
           if (Array.isArray(added) ? added[0] : added) {
             path.strokeWidth = sketchStrokeWidth();
@@ -181,11 +198,20 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
         path.fullySelected = true;
         path.smooth({ type: 'catmull-rom', factor: 0.5 });
       }
-    } else if (previewSegment) {
-      // Not drawing, remove preview if it exists
-      previewSegment.remove();
-      previewSegment = null;
+    } else {
+      if (isDrawingSplineRef.current) {
+        // No spline started yet: still show where the first point would snap.
+        snapped(event.point, null);
+      } else {
+        hideSnapMarker();
+      }
+      if (previewSegment) {
+        // Not drawing, remove preview if it exists
+        previewSegment.remove();
+        previewSegment = null;
+      }
     }
+    if (snapIndicatorRef.current) snapIndicatorRef.current.bringToFront();
   }
 
   // Patch onMouseDown to commit preview segment as a real point
@@ -245,6 +271,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
       currentSplineRef.current.data.isSpline = true;
     }
     isDrawingSplineRef.current = false;
+    hideSnapMarker();
     if (stateManager.setIsSplineDrawing) stateManager.setIsSplineDrawing(false);
     finishCurrentSpline();
   }
@@ -261,6 +288,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
       currentSplineRef.current = null;
     }
     isDrawingSplineRef.current = false;
+    hideSnapMarker();
     if (stateManager.setIsSplineDrawing) stateManager.setIsSplineDrawing(false);
     finishCurrentSpline();
   }
