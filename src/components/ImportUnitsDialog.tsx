@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import type { PreparedImport } from '../importers/prepared';
+import { PLANE_LABELS, type ViewPlane } from '../importers/viewPlane';
 
 interface ImportUnitsDialogProps {
   fileName: string;
   prepared: PreparedImport;
-  onConfirm: (mmPerUnit: number) => void;
+  onConfirm: (mmPerUnit: number, prepared: PreparedImport) => void;
   onCancel: () => void;
 }
 
@@ -27,22 +28,36 @@ function formatMm(value: number): string {
  * with the numbers in the file (common with some CAD exporters) is obvious.
  */
 const ImportUnitsDialog: React.FC<ImportUnitsDialogProps> = ({ fileName, prepared, onConfirm, onCancel }) => {
+  const [current, setCurrent] = useState(prepared);
+  const [plane, setPlane] = useState<ViewPlane>('auto');
   const [mmPerUnit, setMmPerUnit] = useState(prepared.headerMmPerUnit);
 
-  const options = UNIT_OPTIONS.some((o) => o.mmPerUnit === prepared.headerMmPerUnit)
+  useEffect(() => {
+    setCurrent(prepared);
+    setPlane('auto');
+    setMmPerUnit(prepared.headerMmPerUnit);
+  }, [fileName, prepared]);
+
+  const options = UNIT_OPTIONS.some((o) => o.mmPerUnit === current.headerMmPerUnit)
     ? UNIT_OPTIONS
-    : [...UNIT_OPTIONS, { label: `File units (×${prepared.headerMmPerUnit} mm)`, mmPerUnit: prepared.headerMmPerUnit }];
+    : [...UNIT_OPTIONS, { label: `File units (×${current.headerMmPerUnit} mm)`, mmPerUnit: current.headerMmPerUnit }];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
-      if (e.key === 'Enter') onConfirm(mmPerUnit);
+      if (e.key === 'Enter') onConfirm(mmPerUnit, current);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mmPerUnit, onCancel, onConfirm]);
+  }, [current, mmPerUnit, onCancel, onConfirm]);
 
-  const extents = prepared.extents;
+  const changePlane = async (next: ViewPlane) => {
+    setPlane(next);
+    if (!prepared.repreparePlane) return;
+    setCurrent(await prepared.repreparePlane(next));
+  };
+
+  const extents = current.extents;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40" onMouseDown={onCancel}>
@@ -57,8 +72,27 @@ const ImportUnitsDialog: React.FC<ImportUnitsDialogProps> = ({ fileName, prepare
           Import {fileName}
         </h2>
         <p className="mb-3 text-gray-600">
-          {prepared.entityCount} {prepared.entityCount === 1 ? 'entity' : 'entities'}. {prepared.unitsNote}
+          {current.entityCount} {current.entityCount === 1 ? 'entity' : 'entities'}. {current.unitsNote}
         </p>
+        {current.repreparePlane && (
+          <>
+            <label className="mb-1 block font-medium" htmlFor="import-plane-select">
+              View plane
+            </label>
+            <select
+              id="import-plane-select"
+              className="mb-2 w-full rounded border border-gray-300 px-2 py-1"
+              value={plane}
+              onChange={(e) => void changePlane(e.target.value as ViewPlane)}
+            >
+              <option value="auto">Auto{current.viewPlane ? ` — ${PLANE_LABELS[current.viewPlane]}` : ''}</option>
+              <option value="xy">{PLANE_LABELS.xy}</option>
+              <option value="xz">{PLANE_LABELS.xz}</option>
+              <option value="yz">{PLANE_LABELS.yz}</option>
+            </select>
+            {current.viewPlaneNote && <p className="mb-3 text-xs text-gray-500">{current.viewPlaneNote}</p>}
+          </>
+        )}
 
         <label className="mb-1 block font-medium" htmlFor="import-units-select">
           Numbers in this file are in
@@ -95,7 +129,7 @@ const ImportUnitsDialog: React.FC<ImportUnitsDialogProps> = ({ fileName, prepare
           <button
             type="button"
             className="rounded bg-blue-600 px-3 py-1 font-medium text-white hover:bg-blue-700"
-            onClick={() => onConfirm(mmPerUnit)}
+            onClick={() => onConfirm(mmPerUnit, current)}
           >
             Import
           </button>

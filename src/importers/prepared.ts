@@ -16,7 +16,7 @@ export type GeometryBuilder = (matrix: paper.Matrix, items: paper.Path[], skippe
 
 /** A parsed file waiting for the user to confirm its units before it is placed. */
 export interface PreparedImport {
-  format: 'dxf' | 'tcw';
+  format: 'dxf' | 'tcw' | 'dwg';
   entityCount: number;
   /** Bounding size of the geometry in the file's own drawing units. */
   extents: { width: number; height: number } | null;
@@ -28,6 +28,11 @@ export interface PreparedImport {
   unsupported: SkipCounter;
   /** Layers discovered in the file (names already mapped, e.g. DXF "0" → Profile). */
   layers?: { name: string; color: string }[];
+  /** Plane the geometry was flattened onto (CAD files only). */
+  viewPlane?: 'xy' | 'xz' | 'yz';
+  viewPlaneNote?: string;
+  /** Rebuild after the user picks a different view plane. */
+  repreparePlane?: (plane: 'auto' | 'xy' | 'xz' | 'yz') => PreparedImport | Promise<PreparedImport>;
   build: GeometryBuilder;
 }
 

@@ -1,6 +1,7 @@
 export interface DxfPoint {
   x: number;
   y: number;
+  z: number;
 }
 
 export interface DxfVertex extends DxfPoint {
@@ -8,13 +9,15 @@ export interface DxfVertex extends DxfPoint {
   bulge: number;
 }
 
-type WithLayer<T> = T & { layer: string };
+export const DEFAULT_EXTRUSION: DxfPoint = { x: 0, y: 0, z: 1 };
 
-export type DxfEntity = WithLayer<
+type WithMeta<T> = T & { layer: string; extrusion: DxfPoint };
+
+export type DxfEntity = WithMeta<
   | { type: 'LINE'; start: DxfPoint; end: DxfPoint }
   | { type: 'CIRCLE'; center: DxfPoint; radius: number }
   | { type: 'ARC'; center: DxfPoint; radius: number; startAngle: number; endAngle: number }
-  | { type: 'POLYLINE'; vertices: DxfVertex[]; closed: boolean }
+  | { type: 'POLYLINE'; vertices: DxfVertex[]; closed: boolean; ocs: boolean }
   | {
       type: 'SPLINE';
       degree: number;
@@ -96,24 +99,49 @@ function firstValue(record: Pair[], code: number, fallback: string): string {
   return pair ? pair.value : fallback;
 }
 
-function pointAt(record: Pair[], xCode: number, yCode: number): DxfPoint {
-  return { x: num(firstValue(record, xCode, '0')), y: num(firstValue(record, yCode, '0')) };
+function hasCode(record: Pair[], code: number): boolean {
+  return record.some((p, i) => i > 0 && p.code === code);
+}
+
+function pointAt(record: Pair[], xCode: number): DxfPoint {
+  return {
+    x: num(firstValue(record, xCode, '0')),
+    y: num(firstValue(record, xCode + 10, '0')),
+    z: num(firstValue(record, xCode + 20, '0')),
+  };
+}
+
+export function recordExtrusion(record: Pair[]): DxfPoint {
+  if (!hasCode(record, 210) && !hasCode(record, 220) && !hasCode(record, 230)) return { ...DEFAULT_EXTRUSION };
+  return {
+    x: hasCode(record, 210) ? num(firstValue(record, 210, '0')) : 0,
+    y: hasCode(record, 220) ? num(firstValue(record, 220, '0')) : 0,
+    z: hasCode(record, 230) ? num(firstValue(record, 230, '0')) : 0,
+  };
 }
 
 function recordLayer(record: Pair[]): string {
   return firstValue(record, 8, '0');
 }
 
+function meta(record: Pair[]): { layer: string; extrusion: DxfPoint } {
+  return { layer: recordLayer(record), extrusion: recordExtrusion(record) };
+}
+
 function parseLwPolyline(record: Pair[]): DxfEntity {
   const vertices: DxfVertex[] = [];
   let closed = false;
+  let elevation = 0;
   for (const pair of record) {
     switch (pair.code) {
       case 70:
         closed = (num(pair.value) & 1) === 1;
         break;
+      case 38:
+        elevation = num(pair.value);
+        break;
       case 10:
-        vertices.push({ x: num(pair.value), y: 0, bulge: 0 });
+        vertices.push({ x: num(pair.value), y: 0, z: 0, bulge: 0 });
         break;
       case 20:
         if (vertices.length) vertices[vertices.length - 1].y = num(pair.value);
@@ -123,7 +151,8 @@ function parseLwPolyline(record: Pair[]): DxfEntity {
         break;
     }
   }
-  return { type: 'POLYLINE', vertices, closed, layer: recordLayer(record) };
+  for (const vertex of vertices) vertex.z = elevation;
+  return { type: 'POLYLINE', vertices, closed, ocs: true, ...meta(record) };
 }
 
 function parseSpline(record: Pair[]): DxfEntity {
@@ -144,20 +173,26 @@ function parseSpline(record: Pair[]): DxfEntity {
         knots.push(num(pair.value));
         break;
       case 10:
-        controlPoints.push({ x: num(pair.value), y: 0 });
+        controlPoints.push({ x: num(pair.value), y: 0, z: 0 });
         break;
       case 20:
         if (controlPoints.length) controlPoints[controlPoints.length - 1].y = num(pair.value);
         break;
+      case 30:
+        if (controlPoints.length) controlPoints[controlPoints.length - 1].z = num(pair.value);
+        break;
       case 11:
-        fitPoints.push({ x: num(pair.value), y: 0 });
+        fitPoints.push({ x: num(pair.value), y: 0, z: 0 });
         break;
       case 21:
         if (fitPoints.length) fitPoints[fitPoints.length - 1].y = num(pair.value);
         break;
+      case 31:
+        if (fitPoints.length) fitPoints[fitPoints.length - 1].z = num(pair.value);
+        break;
     }
   }
-  return { type: 'SPLINE', degree, closed, controlPoints, fitPoints, knots, layer: recordLayer(record) };
+  return { type: 'SPLINE', degree, closed, controlPoints, fitPoints, knots, ...meta(record) };
 }
 
 /**
@@ -166,7 +201,8 @@ function parseSpline(record: Pair[]): DxfEntity {
  */
 function parseEntities(records: Pair[][], unsupported: Record<string, number>): DxfEntity[] {
   const entities: DxfEntity[] = [];
-  let pendingPolyline: { vertices: DxfVertex[]; closed: boolean; layer: string } | null = null;
+  let pendingPolyline: { vertices: DxfVertex[]; closed: boolean; ocs: boolean; layer: string; extrusion: DxfPoint } | null =
+    null;
   let skippingMeshVertices = false;
 
   for (const record of records) {
@@ -183,7 +219,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
         const flags = num(firstValue(record, 70, '0'));
         // Bit 16 marks spline-frame control points, which are not part of the drawn curve.
         if ((flags & 16) === 0) {
-          const p = pointAt(record, 10, 20);
+          const p = pointAt(record, 10);
           pendingPolyline.vertices.push({ ...p, bulge: num(firstValue(record, 42, '0')) });
         }
         continue;
@@ -193,22 +229,22 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
       if (type === 'SEQEND') continue;
     }
 
-    const layer = recordLayer(record);
+    const extras = meta(record);
     switch (type) {
       case 'LINE':
-        entities.push({ type: 'LINE', start: pointAt(record, 10, 20), end: pointAt(record, 11, 21), layer });
+        entities.push({ type: 'LINE', start: pointAt(record, 10), end: pointAt(record, 11), ...extras });
         break;
       case 'CIRCLE':
-        entities.push({ type: 'CIRCLE', center: pointAt(record, 10, 20), radius: num(firstValue(record, 40, '0')), layer });
+        entities.push({ type: 'CIRCLE', center: pointAt(record, 10), radius: num(firstValue(record, 40, '0')), ...extras });
         break;
       case 'ARC':
         entities.push({
           type: 'ARC',
-          center: pointAt(record, 10, 20),
+          center: pointAt(record, 10),
           radius: num(firstValue(record, 40, '0')),
           startAngle: num(firstValue(record, 50, '0')),
           endAngle: num(firstValue(record, 51, '360')),
-          layer,
+          ...extras,
         });
         break;
       case 'LWPOLYLINE':
@@ -222,7 +258,7 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           skippingMeshVertices = true;
           break;
         }
-        pendingPolyline = { vertices: [], closed: (flags & 1) === 1, layer };
+        pendingPolyline = { vertices: [], closed: (flags & 1) === 1, ocs: (flags & 8) === 0, ...extras };
         break;
       }
       case 'SPLINE':
@@ -231,22 +267,22 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
       case 'ELLIPSE':
         entities.push({
           type: 'ELLIPSE',
-          center: pointAt(record, 10, 20),
-          majorAxis: pointAt(record, 11, 21),
+          center: pointAt(record, 10),
+          majorAxis: pointAt(record, 11),
           ratio: num(firstValue(record, 40, '1')),
           startParam: num(firstValue(record, 41, '0')),
           endParam: num(firstValue(record, 42, String(Math.PI * 2))),
-          layer,
+          ...extras,
         });
         break;
       case 'INSERT':
         entities.push({
           type: 'INSERT',
           name: firstValue(record, 2, ''),
-          position: pointAt(record, 10, 20),
-          scale: { x: num(firstValue(record, 41, '1')), y: num(firstValue(record, 42, '1')) },
+          position: pointAt(record, 10),
+          scale: { x: num(firstValue(record, 41, '1')), y: num(firstValue(record, 42, '1')), z: num(firstValue(record, 43, '1')) },
           rotation: num(firstValue(record, 50, '0')),
-          layer,
+          ...extras,
         });
         break;
       case 'VERTEX':
@@ -272,7 +308,7 @@ function parseBlocks(records: Pair[][], unsupported: Record<string, number>): Re
       continue;
     }
     const name = firstValue(record, 2, '');
-    const base = pointAt(record, 10, 20);
+    const base = pointAt(record, 10);
     const body: Pair[][] = [];
     i++;
     while (i < records.length && records[i][0].value.toUpperCase() !== 'ENDBLK') {
@@ -300,7 +336,8 @@ function parseLayerTable(records: Pair[][]): DxfLayerInfo[] {
 /**
  * Parses an ASCII DXF file. Supports LINE, CIRCLE, ARC, LWPOLYLINE, POLYLINE,
  * SPLINE, ELLIPSE, and INSERT (block references). Other entity types are
- * counted in `unsupported` so the caller can report them.
+ * counted in `unsupported` so the caller can report them. Coordinates keep Z
+ * and extrusion so the importer can flatten drawings that sit on XZ or YZ.
  */
 export function parseDxf(text: string): DxfDocument {
   if (text.startsWith('AutoCAD Binary DXF')) {

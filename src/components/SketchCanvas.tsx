@@ -17,6 +17,7 @@ import { createHistory, type SketchHistory } from '../canvas/history';
 import { resetLayers } from '../canvas/layers';
 import { buildDxf, exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
+import { prepareDwgImport } from '../importers/ImportDWG';
 import { prepareTcwImport } from '../importers/ImportTCW';
 import { commitImport, type PreparedImport } from '../importers/prepared';
 import { usePaperBootstrap } from './sketch/usePaperBootstrap';
@@ -342,11 +343,18 @@ function SketchCanvas(
       if (!paperReady) return;
       try {
         const isTcw = /\.tcw$/i.test(file.name);
-        const prepared = isTcw ? await prepareTcwImport(await file.arrayBuffer()) : prepareDxfImport(await file.text());
+        const isDwg = /\.dwg$/i.test(file.name);
+        if (isDwg) setStatusMessage(`Reading ${file.name}…`);
+        const prepared = isTcw
+          ? await prepareTcwImport(await file.arrayBuffer())
+          : isDwg
+            ? await prepareDwgImport(await file.arrayBuffer())
+            : prepareDxfImport(await file.text());
         if (prepared.entityCount === 0) {
           setStatusMessage(`Import failed: no supported geometry found in ${file.name}`);
           return;
         }
+        setStatusMessage(null);
         setPendingImport({ fileName: file.name, prepared });
       } catch (error) {
         setStatusMessage(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -356,9 +364,10 @@ function SketchCanvas(
   );
 
   const confirmImport = useCallback(
-    (mmPerUnit: number) => {
+    (mmPerUnit: number, preparedOverride?: PreparedImport) => {
       if (!pendingImport) return;
-      const { fileName, prepared } = pendingImport;
+      const fileName = pendingImport.fileName;
+      const prepared = preparedOverride ?? pendingImport.prepared;
       setPendingImport(null);
       history.checkpoint();
       const summary = commitImport(prepared, mmPerUnit);
