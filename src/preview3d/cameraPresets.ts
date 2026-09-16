@@ -45,7 +45,7 @@ export const DEFAULT_CAMERA_PRESET: CameraPresetId = 'threeQuarter';
 export const STUDIO_ENV_YAW = Math.PI * 0.35;
 
 export function isCameraPresetId(value: string): value is CameraPresetId {
-  return Object.hasOwn(CAMERA_PRESETS, value);
+  return CAMERA_PRESET_IDS.some((id) => id === value);
 }
 
 export function cameraDirection(azimuth: number, elevation: number): THREE.Vector3 {
