@@ -12,7 +12,8 @@ import { profileBounds, type ProfileLoops } from './profileSolid';
  * Long grain follows the extrusion; cross grain rotates that log axis 90°.
  */
 
-const RING_MM = 7.0;
+/** Ring pitch. Tighter rings put more fine grain lines across a planed face. */
+const RING_MM = 5.0;
 
 /**
  * How the sample was cut from the log. Only the pith position and the noise seed change, so
@@ -88,20 +89,25 @@ float woodRadius(vec3 p) {
     + (vnoise(vec3(q.x * 0.45 + 3.0, q.y * 0.45, q.z * 0.02)) - 0.5) * 0.6;
   // Grain runs about a degree off the length of the piece, as it does in sawn timber.
   float r = length(q.xy - uPith) + warp + ripple + drift + rag + q.z * 0.03;
-  return r + 2.5 * sin(r * 0.06) + 0.9 * sin(r * 0.2 + 1.7);
+  // Good and lean years: ring width swings roughly 0.6x..1.4x while staying monotonic, so
+  // rings bunch into tight groups with wider bands between them instead of an even stripe.
+  return r + 4.0 * sin(r * 0.045) + 1.2 * sin(r * 0.2 + 1.7);
 }
 
-// Latewood weight in 0..1. On a face the band glows in and out softly on both sides, the way
-// planed pine photographs; on end grain (crisp -> 1) the same ring is a narrow line with a
-// sharp outer edge. aa widens the transitions by the pixel footprint so distant rings do not
-// shimmer.
+// Latewood weight in 0..1. On a face the band is a fairly narrow line that eases in and out,
+// the way planed pine photographs; on end grain (crisp -> 1) the same ring is a crisp line
+// with a sharp outer edge. aa widens the transitions by the pixel footprint so distant rings
+// do not shimmer.
 float woodLatewood(float r, float aa, float crisp) {
   float ring = floor(r / RING_MM);
   float phase = fract(r / RING_MM);
-  float start = mix(0.35 + 0.2 * hash13(vec3(ring, 2.7, 9.1)), 0.66, crisp);
-  float depth = 0.65 + 0.35 * hash13(vec3(ring, 8.3, 0.4));
-  float rise = mix(0.12, 0.03, crisp);
-  float fall = mix(0.12, 0.02, crisp);
+  float start = mix(0.45 + 0.25 * hash13(vec3(ring, 2.7, 9.1)), 0.56, crisp);
+  // On a face some rings barely register and others are strong: that variation in line
+  // weight is what separates real grain from a printed pattern. On a cut end every ring shows.
+  float depthVar = hash13(vec3(ring, 8.3, 0.4));
+  float depth = mix(0.4 + 0.6 * depthVar, 0.8 + 0.2 * depthVar, crisp);
+  float rise = mix(0.07, 0.03, crisp);
+  float fall = mix(0.06, 0.02, crisp);
   float late = smoothstep(start - rise - aa, 0.82 + aa, phase) * (1.0 - smoothstep(0.86 - fall - aa, 1.0, phase));
   return mix(late * depth, 0.3, smoothstep(0.35, 1.2, aa));
 }
@@ -114,13 +120,25 @@ float woodFibre(vec3 p, float px) {
   float f = fbm(vec3(q.x * 0.7, q.y * 0.7, q.z * 0.03));
   float streaks = vnoise(vec3(q.x * 0.65, q.y * 0.65, q.z * 0.008));
   float hairlines = vnoise(vec3(q.x * 1.9, q.y * 1.9, q.z * 0.006)) + vnoise(vec3(q.x * 3.3 + 7.0, q.y * 3.3, q.z * 0.009)) - 1.0;
+  // Individual fibres: hair-thin, running a long way down the board.
+  float hairs = vnoise(vec3(q.x * 4.0 + 11.0, q.y * 4.0, q.z * 0.004)) - 0.5;
   float pores = vnoise(vec3(q.x * 2.4, q.y * 2.4, q.z * 0.09));
   float fibreFade = 1.0 - 0.7 * smoothstep(0.4, 2.5, px);
   float streakFade = 1.0 - smoothstep(0.4, 1.2, px);
   float fineFade = 1.0 - smoothstep(0.15, 0.6, px);
-  return (f - 0.5) * 0.7 * fibreFade
-    + (streaks - 0.5) * 0.35 * streakFade
-    + (hairlines * 0.25 + (pores - 0.5) * 0.3) * fineFade;
+  float hairFade = 1.0 - smoothstep(0.12, 0.5, px);
+  return (f - 0.5) * 0.6 * fibreFade
+    + (streaks - 0.5) * 0.4 * streakFade
+    + (hairlines * 0.45 + (pores - 0.5) * 0.3) * fineFade
+    + hairs * 0.6 * hairFade;
+}
+
+// End grain is cut across the fibres, so it is a field of open cells: a porous, slightly fuzzy
+// surface rather than a polished one. Fades out as the cells approach pixel size.
+float endGrainPores(vec3 p, float px) {
+  vec3 q = p + uSeed;
+  float cells = vnoise(q * 3.0) + 0.5 * vnoise(q * 7.0 + 3.0) - 0.75;
+  return cells * (1.0 - smoothstep(0.1, 0.5, px));
 }
 
 // Planer / moulder knife marks: shallow ripples running across the grain at a regular pitch
@@ -135,7 +153,7 @@ float planerMarks(vec3 p, float px) {
 
 float woodHeight(vec3 p, float aa, float px, float crisp, float endGrain) {
   float relief = woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.45;
-  return relief + planerMarks(p, px) * 0.14 * (1.0 - endGrain);
+  return relief + planerMarks(p, px) * 0.14 * (1.0 - endGrain) + endGrainPores(p, px) * 0.6 * endGrain;
 }
 
 vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
@@ -166,13 +184,17 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float woodLate = woodLatewood(woodR, woodAA, endGrain);
   float woodFib = woodFibre(woodP, woodPx);
 
-  // Large, slow colour drift along the board (heart/sap tint, mineral streaks).
+  // Large, slow colour drift along the board: heartwood runs a touch warmer and pinker,
+  // sapwood paler and cooler.
   float tint = fbm(vec3(woodP.x * 0.03, woodP.y * 0.03, woodP.z * 0.0025)) - 0.5;
-  // Face bands stay soft and translucent-looking; end grain gets the full ring contrast.
-  float bandWeight = mix(0.92, 1.0, endGrain);
-  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.06, 0.0, 1.0));
-  woodColor *= 1.0 + tint * vec3(0.08, 0.05, 0.0);
-  woodColor *= 1.0 + woodFib * vec3(0.11, 0.13, 0.18);
+  // Face bands stay a little translucent; end grain gets the full ring contrast.
+  float bandWeight = mix(0.9, 1.2, endGrain);
+  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.12, 0.0, 1.0));
+  woodColor *= 1.0 + tint * vec3(0.07, 0.02, -0.05);
+  woodColor *= 1.0 + woodFib * vec3(0.16, 0.19, 0.24);
+  // Open cells on the end grain: darker, redder rings and a mottled earlywood.
+  float endPore = endGrainPores(woodP, woodPx);
+  woodColor *= 1.0 + endGrain * (endPore * 0.3 - woodLate * vec3(0.35, 0.45, 0.5));
   woodColor *= mix(1.0, 0.8, endGrain);
 
   // Softened arrises: the normal swings quickly across a few pixels there. The cutter leaves
@@ -183,7 +205,7 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // Latewood is denser and slightly glossier than the soft, absorbent earlywood; the fibre
   // detail breaks the highlight up so it never reads as a single smooth sheet. The arris
   // roughness is floored so the tight highlight cannot break into sparkling fireflies.
-  float woodRough = clamp(0.72 - woodLate * 0.12 + woodFib * 0.22 + endGrain * 0.15, 0.4, 0.95);
+  float woodRough = clamp(0.78 - woodLate * 0.12 + woodFib * 0.22 + endGrain * 0.18, 0.45, 0.97);
   woodRough = mix(woodRough, 0.45, arris * 0.7);
 
   // No relief on the arrises: the finite-difference bump is unstable where the normal turns
@@ -223,12 +245,12 @@ export function createTimberMaterial(
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.72,
+    roughness: 0.78,
     metalness: 0,
-    specularIntensity: 0.35,
+    specularIntensity: 0.22,
     // Highlights stretch along the fibres. The mesh UVs put u along the length so the
     // anisotropy tangent follows the grain on every face. Paint has no fibre direction.
-    anisotropy: primed ? 0 : 0.55,
+    anisotropy: primed ? 0 : 0.4,
     anisotropyRotation: 0,
   });
 
@@ -247,11 +269,12 @@ export function createTimberMaterial(
   const uniforms = {
     uPith: { value: pith },
     uSeed: { value: grain.seed },
-    // Photographed clear pine: warm honey earlywood, soft tan latewood. THREE.Color already
-    // converts hex (sRGB) into the linear working space, so no further conversion here.
-    uEarlywood: { value: new THREE.Color('#e2cfa3') },
-    uLatewood: { value: new THREE.Color('#bf955a') },
-    uBumpScale: { value: 0.35 },
+    // Photographed clear pine: pale cream earlywood, soft pinkish-tan latewood. The warm key
+    // light and tone mapping add the honey on top, so these read paler than the final image.
+    // THREE.Color already converts hex (sRGB) into the linear working space.
+    uEarlywood: { value: new THREE.Color('#eadcbf') },
+    uLatewood: { value: new THREE.Color('#bd9062') },
+    uBumpScale: { value: 0.5 },
     uGrainCross: { value: direction === 'cross' ? 1 : 0 },
     uPrimed: { value: primed ? 1 : 0 },
     // Factory primer: a soft warm white rather than a paper white.
@@ -273,6 +296,6 @@ export function createTimberMaterial(
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'
       );
   };
-  material.customProgramCacheKey = () => 'timber-pine-solid-v5';
+  material.customProgramCacheKey = () => 'timber-pine-solid-v6';
   return material;
 }

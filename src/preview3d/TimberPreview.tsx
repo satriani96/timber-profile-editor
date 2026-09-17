@@ -100,11 +100,11 @@ function Scene({ loops, length, grain, grainDirection, primed, preset }: ScenePr
       {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
           layout effects) is not torn down and re-run while the file streams in. */}
       <Suspense fallback={null}>
-        <Environment files={STUDIO_HDR} environmentIntensity={0.9} environmentRotation={envRotation} />
+        <Environment files={STUDIO_HDR} environmentIntensity={0.75} environmentRotation={envRotation} />
       </Suspense>
       <directionalLight
         position={keyPosition}
-        intensity={1.4}
+        intensity={1.55}
         color="#fffaf3"
         castShadow
         shadow-mapSize={[2048, 2048]}
@@ -182,7 +182,7 @@ export default function TimberPreview({
         alpha: true,
         premultipliedAlpha: false,
         toneMapping: THREE.NeutralToneMapping,
-        toneMappingExposure: 1.1,
+        toneMappingExposure: 1.0,
       }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
       // Always render at 2x: on a 1x display this is supersampling, which is what sharpens the

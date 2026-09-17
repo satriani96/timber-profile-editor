@@ -12,7 +12,7 @@ import {
 } from '../canvas/layers';
 import { existsSync, readFileSync } from 'node:fs';
 import { importDxfText } from '../importers/ImportDXF';
-import { extractProfileLoops, profileBounds, ProfileSolidError, sampleLoopYUp } from './profileSolid';
+import { extractProfileLoops, profileBounds, sampleLoopYUp } from './profileSolid';
 
 function onLayer(layer: string, build: () => paper.Path): paper.Path {
   setActiveLayer(layer);
