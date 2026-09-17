@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { softenArrises } from './arris';
 import { createTimberMaterial, type GrainDirection, type GrainStyle } from './timberMaterial';
-import { profileBounds, type ProfileLoops } from './profileSolid';
+import { profileBounds, type Point2, type ProfileLoops } from './profileSolid';
 
 /** Edges meeting at less than this angle are smoothed (sampled arcs); sharper arrises stay crisp. */
 const CREASE_ANGLE = (32 * Math.PI) / 180;
@@ -16,20 +15,10 @@ export function createTimberMesh(
 ): THREE.Mesh {
   const bounds = profileBounds(loops);
   const arris = Math.min(1.0, 0.05 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
-  const toVec = (point: { x: number; y: number }) => new THREE.Vector2(point.x, point.y);
-  const shape = new THREE.Shape(softenArrises(loops.outer, arris).map(toVec));
-  for (const hole of loops.holes) {
-    shape.holes.push(new THREE.Path(softenArrises(hole, arris).map(toVec)));
-  }
+  const outer = softenArrises(loops.outer, arris);
+  const holes = loops.holes.map((hole) => softenArrises(hole, arris));
 
-  const extruded = new THREE.ExtrudeGeometry(shape, {
-    depth: length,
-    bevelEnabled: false,
-    curveSegments: 1,
-    steps: 1,
-  });
-  const geometry = toCreasedNormals(extruded, CREASE_ANGLE);
-  extruded.dispose();
+  const geometry = extrudeProfile(outer, holes, length);
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
   geometry.setAttribute('uv', grainUvs(geometry, direction));
 
@@ -37,6 +26,115 @@ export function createTimberMesh(
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/**
+ * Extrude the profile along +Z from 0 to `length`, building the side walls with normals
+ * weighted by segment length. That is the 2D form of face-area-weighted normals: where a
+ * long flat face meets the first short chord of a fillet, the shared vertex keeps the flat
+ * face's normal, so the face shades perfectly flat and the round starts exactly where the
+ * geometry does. Between equal chords the weighted normal is the exact radial direction, so a
+ * sampled arc shades as a true cylinder. A plain average (what `toCreasedNormals` gives)
+ * tilts the flat face's edge normals by half the chord angle and smears a shading gradient
+ * across the whole face, which is what made the arrises read as soft chamfers.
+ *
+ * Loops must have the solid on their left: outer counter-clockwise, holes clockwise.
+ */
+function extrudeProfile(outer: Point2[], holes: Point2[][], length: number): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+
+  for (const loop of [outer, ...holes]) {
+    addSideWalls(loop, length, positions, normals, indices);
+  }
+  addCaps(outer, holes, length, positions, normals, indices);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+function addSideWalls(loop: Point2[], length: number, positions: number[], normals: number[], indices: number[]): void {
+  const count = loop.length;
+  if (count < 3) return;
+
+  // Outward normal and length of each segment i -> i + 1.
+  const segNx = new Float64Array(count);
+  const segNy = new Float64Array(count);
+  const segLen = new Float64Array(count);
+  for (let i = 0; i < count; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % count];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    segLen[i] = len;
+    if (len > 0) {
+      segNx[i] = dy / len;
+      segNy[i] = -dx / len;
+    }
+  }
+
+  // Vertex normal at the start of segment i (shared with the end of segment i - 1) and at
+  // its end (shared with the start of segment i + 1). Hard where the turn exceeds the crease
+  // angle, otherwise the length-weighted blend of the two segment normals.
+  const blend = (prev: number, next: number): [number, number] => {
+    const dot = segNx[prev] * segNx[next] + segNy[prev] * segNy[next];
+    if (Math.acos(Math.min(1, Math.max(-1, dot))) > CREASE_ANGLE) return [NaN, NaN];
+    const nx = segNx[prev] * segLen[prev] + segNx[next] * segLen[next];
+    const ny = segNy[prev] * segLen[prev] + segNy[next] * segLen[next];
+    const len = Math.hypot(nx, ny);
+    return len > 0 ? [nx / len, ny / len] : [NaN, NaN];
+  };
+
+  for (let i = 0; i < count; i++) {
+    if (segLen[i] <= 0) continue;
+    const prev = (i + count - 1) % count;
+    const next = (i + 1) % count;
+    const a = loop[i];
+    const b = loop[next];
+
+    let [sx, sy] = blend(prev, i);
+    if (Number.isNaN(sx)) [sx, sy] = [segNx[i], segNy[i]];
+    let [ex, ey] = blend(i, next);
+    if (Number.isNaN(ex)) [ex, ey] = [segNx[i], segNy[i]];
+
+    const base = positions.length / 3;
+    positions.push(a.x, a.y, 0, b.x, b.y, 0, b.x, b.y, length, a.x, a.y, length);
+    normals.push(sx, sy, 0, ex, ey, 0, ex, ey, 0, sx, sy, 0);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+}
+
+function addCaps(outer: Point2[], holes: Point2[][], length: number, positions: number[], normals: number[], indices: number[]): void {
+  const toVec = (p: Point2) => new THREE.Vector2(p.x, p.y);
+  const contour = outer.map(toVec);
+  const holeContours = holes.map((hole) => hole.map(toVec));
+  const flat = [...contour, ...holeContours.flat()];
+  const faces = THREE.ShapeUtils.triangulateShape(contour, holeContours);
+
+  for (const [z, nz] of [
+    [length, 1],
+    [0, -1],
+  ] as const) {
+    const base = positions.length / 3;
+    for (const p of flat) {
+      positions.push(p.x, p.y, z);
+      normals.push(0, 0, nz);
+    }
+    for (const [a, b, c] of faces) {
+      // Earcut's winding is not guaranteed; orient every triangle to face out of its cap.
+      const pa = flat[a];
+      const pb = flat[b];
+      const pc = flat[c];
+      const area = (pb.x - pa.x) * (pc.y - pa.y) - (pc.x - pa.x) * (pb.y - pa.y);
+      if (area * nz >= 0) indices.push(base + a, base + b, base + c);
+      else indices.push(base + a, base + c, base + b);
+    }
+  }
 }
 
 /**

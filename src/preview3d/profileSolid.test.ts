@@ -74,6 +74,23 @@ describe('extractProfileLoops', () => {
     expect(Math.max(...loops.outer.map((p) => Math.abs(p.y)))).toBeCloseTo(18);
   });
 
+  it('keeps a stitched CAD arc round instead of collapsing it to a chord', () => {
+    // 80 x 18 with a 3 mm round on the top-right arris, drawn CAD-style as separate entities.
+    line([0, 0], [77, 0]);
+    onLayer(PROFILE_LAYER, () => new paper.Path.Arc({ from: [77, 0], through: [77 + 3 * Math.SQRT1_2, 3 - 3 * Math.SQRT1_2], to: [80, 3], strokeColor: 'black' }));
+    line([80, 3], [80, 18]);
+    line([80, 18], [0, 18]);
+    line([0, 18], [0, 0]);
+    const loops = extractProfileLoops();
+    const onRound = loops.outer.filter((p) => p.x > 77 + 1e-6 && p.x < 80 - 1e-6);
+    // Sampled at 0.4 mm along a 4.7 mm arc: well over the zero points a straight chord would give.
+    expect(onRound.length).toBeGreaterThanOrEqual(8);
+    for (const p of onRound) {
+      // A cubic Bezier approximates a quarter circle to within a thousandth of the radius.
+      expect(Math.hypot(p.x - 77, -p.y - 3)).toBeCloseTo(3, 2);
+    }
+  });
+
   it('joins CAD-style endpoints that miss by a few microns', () => {
     line([0, 0], [80, 0]);
     line([80, 0], [80, 18]);

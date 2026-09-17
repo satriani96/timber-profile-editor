@@ -100,11 +100,11 @@ function Scene({ loops, length, grain, grainDirection, primed, preset }: ScenePr
       {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
           layout effects) is not torn down and re-run while the file streams in. */}
       <Suspense fallback={null}>
-        <Environment files={STUDIO_HDR} environmentIntensity={0.75} environmentRotation={envRotation} />
+        <Environment files={STUDIO_HDR} environmentIntensity={0.55} environmentRotation={envRotation} />
       </Suspense>
       <directionalLight
         position={keyPosition}
-        intensity={1.55}
+        intensity={1.9}
         color="#fffaf3"
         castShadow
         shadow-mapSize={[2048, 2048]}

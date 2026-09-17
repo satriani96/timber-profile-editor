@@ -22,8 +22,6 @@ export class ProfileSolidError extends Error {
   }
 }
 
-type Polyline = { points: paper.Point[] };
-
 function isProfilePath(item: paper.Item): item is paper.Path {
   if (!(item instanceof paper.Path) || !item.visible) return false;
   if (item.data?.isTemporary || item.data?.isMeasurement || item.data?.isDimension) return false;
@@ -40,17 +38,31 @@ function nearly(a: paper.Point, b: paper.Point): boolean {
   return a.getDistance(b) <= JOIN_TOLERANCE_MM;
 }
 
-function clonePoints(path: paper.Path): paper.Point[] {
-  return path.segments.map((segment) => segment.point.clone());
+// Segments are carried whole (point plus both handles) so the arcs CAD draws on arrises and
+// in grooves survive stitching. A 90° Paper arc is one cubic segment: keep only its points
+// and the round collapses into a straight chord.
+function cloneSegments(path: paper.Path): paper.Segment[] {
+  return path.segments.map((segment) => segment.clone());
 }
 
-function reversePoints(points: paper.Point[]): paper.Point[] {
-  return points.map((point) => point.clone()).reverse();
+function reverseSegments(segments: paper.Segment[]): paper.Segment[] {
+  return segments.map((segment) => new paper.Segment(segment.point, segment.handleOut, segment.handleIn)).reverse();
+}
+
+/** Append `piece` after `chain`, merging the shared endpoint so the curve continues through it. */
+function appendChain(chain: paper.Segment[], piece: paper.Segment[]): void {
+  chain[chain.length - 1].handleOut = piece[0].handleOut;
+  chain.push(...piece.slice(1));
+}
+
+function prependChain(chain: paper.Segment[], piece: paper.Segment[]): void {
+  chain[0].handleIn = piece[piece.length - 1].handleIn;
+  chain.unshift(...piece.slice(0, -1));
 }
 
 /** Stitch open sketch paths whose endpoints meet into closed loops. */
 export function joinOpenPaths(paths: paper.Path[]): { closed: paper.Path[]; leftover: number } {
-  const remaining: Polyline[] = paths.filter((path) => !path.closed).map((path) => ({ points: clonePoints(path) }));
+  const remaining: paper.Segment[][] = paths.filter((path) => !path.closed).map(cloneSegments);
   const closed: paper.Path[] = paths.filter((path) => path.closed);
   let leftover = 0;
 
@@ -61,18 +73,18 @@ export function joinOpenPaths(paths: paper.Path[]): { closed: paper.Path[]; left
       grew = false;
       for (let i = remaining.length - 1; i >= 0; i--) {
         const piece = remaining[i];
-        const start = chain.points[0];
-        const end = chain.points[chain.points.length - 1];
-        const pieceStart = piece.points[0];
-        const pieceEnd = piece.points[piece.points.length - 1];
+        const start = chain[0].point;
+        const end = chain[chain.length - 1].point;
+        const pieceStart = piece[0].point;
+        const pieceEnd = piece[piece.length - 1].point;
         if (nearly(end, pieceStart)) {
-          chain.points.push(...piece.points.slice(1));
+          appendChain(chain, piece);
         } else if (nearly(end, pieceEnd)) {
-          chain.points.push(...reversePoints(piece.points).slice(1));
+          appendChain(chain, reverseSegments(piece));
         } else if (nearly(start, pieceEnd)) {
-          chain.points.unshift(...piece.points.slice(0, -1));
+          prependChain(chain, piece);
         } else if (nearly(start, pieceStart)) {
-          chain.points.unshift(...reversePoints(piece.points).slice(0, -1));
+          prependChain(chain, reverseSegments(piece));
         } else {
           continue;
         }
@@ -81,14 +93,11 @@ export function joinOpenPaths(paths: paper.Path[]): { closed: paper.Path[]; left
       }
     }
 
-    const first = chain.points[0];
-    const last = chain.points[chain.points.length - 1];
-    if (chain.points.length >= 3 && nearly(first, last)) {
-      const loop = nearly(first, last) ? chain.points.slice(0, -1) : chain.points;
-      if (loop.length >= 3) {
-        closed.push(new paper.Path({ insert: false, closed: true, segments: loop }));
-        continue;
-      }
+    if (chain.length >= 4 && nearly(chain[0].point, chain[chain.length - 1].point)) {
+      const last = chain.pop()!;
+      chain[0].handleIn = last.handleIn;
+      closed.push(new paper.Path({ insert: false, closed: true, segments: chain }));
+      continue;
     }
     leftover += 1;
   }

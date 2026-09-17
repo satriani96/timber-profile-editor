@@ -101,7 +101,7 @@ float woodRadius(vec3 p) {
 float woodLatewood(float r, float aa, float crisp) {
   float ring = floor(r / RING_MM);
   float phase = fract(r / RING_MM);
-  float start = mix(0.45 + 0.25 * hash13(vec3(ring, 2.7, 9.1)), 0.56, crisp);
+  float start = mix(0.45 + 0.25 * hash13(vec3(ring, 2.7, 9.1)), 0.5, crisp);
   // On a face some rings barely register and others are strong: that variation in line
   // weight is what separates real grain from a printed pattern. On a cut end every ring shows.
   float depthVar = hash13(vec3(ring, 8.3, 0.4));
@@ -133,12 +133,14 @@ float woodFibre(vec3 p, float px) {
     + hairs * 0.6 * hairFade;
 }
 
-// End grain is cut across the fibres, so it is a field of open cells: a porous, slightly fuzzy
-// surface rather than a polished one. Fades out as the cells approach pixel size.
+// End grain is cut across the fibres, so it is a field of open cells: a soft mottle with
+// sparse dark pores (resin canals and the odd torn cell), not an even sandy speckle.
+// Fades out as the cells approach pixel size.
 float endGrainPores(vec3 p, float px) {
   vec3 q = p + uSeed;
-  float cells = vnoise(q * 3.0) + 0.5 * vnoise(q * 7.0 + 3.0) - 0.75;
-  return cells * (1.0 - smoothstep(0.1, 0.5, px));
+  float mottle = vnoise(q * 1.5) + 0.5 * vnoise(q * 4.0 + 3.0) - 0.75;
+  float specks = smoothstep(0.68, 0.78, vnoise(q * 3.5 + 7.0));
+  return (mottle * 0.6 - specks * 0.8) * (1.0 - smoothstep(0.15, 0.6, px));
 }
 
 // Planer / moulder knife marks: shallow ripples running across the grain at a regular pitch
@@ -151,9 +153,13 @@ float planerMarks(vec3 p, float px) {
   return ripple * knifeVar * (1.0 - smoothstep(0.5, 1.3, px));
 }
 
+// Planed pine is close to flat: the latewood stands a hair proud after the cutter and the
+// fibres barely register. Fibre and knife marks are kept faint so they never cross into a
+// woven texture; the fibre shows in colour and in the stretched highlight instead. Cut ends
+// keep their open-cell relief.
 float woodHeight(vec3 p, float aa, float px, float crisp, float endGrain) {
-  float relief = woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.45;
-  return relief + planerMarks(p, px) * 0.14 * (1.0 - endGrain) + endGrainPores(p, px) * 0.6 * endGrain;
+  float relief = woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.15;
+  return relief + planerMarks(p, px) * 0.03 * (1.0 - endGrain) + endGrainPores(p, px) * 0.4 * endGrain;
 }
 
 vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
@@ -188,25 +194,27 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // sapwood paler and cooler.
   float tint = fbm(vec3(woodP.x * 0.03, woodP.y * 0.03, woodP.z * 0.0025)) - 0.5;
   // Face bands stay a little translucent; end grain gets the full ring contrast.
-  float bandWeight = mix(0.9, 1.2, endGrain);
+  float bandWeight = mix(0.9, 1.0, endGrain);
   vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.12, 0.0, 1.0));
   woodColor *= 1.0 + tint * vec3(0.07, 0.02, -0.05);
   woodColor *= 1.0 + woodFib * vec3(0.16, 0.19, 0.24);
-  // Open cells on the end grain: darker, redder rings and a mottled earlywood.
+  // Open cells on the end grain: darker, redder rings and a faintly mottled earlywood. Light
+  // goes down the cut cells and is absorbed, so the whole end reads darker and more saturated
+  // (warmer) than the planed faces, not greyer.
   float endPore = endGrainPores(woodP, woodPx);
-  woodColor *= 1.0 + endGrain * (endPore * 0.3 - woodLate * vec3(0.35, 0.45, 0.5));
-  woodColor *= mix(1.0, 0.8, endGrain);
+  woodColor *= 1.0 + endGrain * (endPore * 0.25 - woodLate * vec3(0.16, 0.24, 0.3));
+  woodColor *= mix(vec3(1.0), vec3(0.74, 0.66, 0.57), endGrain);
 
-  // Softened arrises: the normal swings quickly across a few pixels there. The cutter leaves
-  // those edges burnished, so they catch a brighter, tighter highlight than the flat faces.
+  // Rounded arrises: the normal swings quickly across a few pixels there. The geometry now
+  // carries the round, so the highlight comes from the lighting; the only material change is
+  // that the cutter leaves those edges a touch more burnished than the open face.
   float arris = smoothstep(0.04, 0.25, length(fwidth(vWoodNormal)));
-  woodColor *= 1.0 + arris * 0.06;
 
-  // Latewood is denser and slightly glossier than the soft, absorbent earlywood; the fibre
-  // detail breaks the highlight up so it never reads as a single smooth sheet. The arris
-  // roughness is floored so the tight highlight cannot break into sparkling fireflies.
-  float woodRough = clamp(0.78 - woodLate * 0.12 + woodFib * 0.22 + endGrain * 0.18, 0.45, 0.97);
-  woodRough = mix(woodRough, 0.45, arris * 0.7);
+  // Planed clear pine has a soft satin sheen (roughness around 0.6); the dense latewood is a
+  // little glossier than the absorbent earlywood, the fibre breaks the highlight into
+  // streaks, and the cut end is rougher and duller.
+  float woodRough = clamp(0.62 - woodLate * 0.08 + woodFib * 0.14 + endGrain * 0.24, 0.42, 0.95);
+  woodRough -= arris * 0.08;
 
   // No relief on the arrises: the finite-difference bump is unstable where the normal turns
   // fast and only adds noise to an edge that should read as a clean highlight.
@@ -221,7 +229,7 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float primed = uPrimed * (1.0 - cutEnd);
   vec3 primerColor = uPrimer * (1.0 + woodFib * 0.03 + woodLate * 0.015);
   woodColor = mix(woodColor, primerColor, primed);
-  woodRough = mix(woodRough, 0.82 - arris * 0.15, primed);
+  woodRough = mix(woodRough, 0.82 - arris * 0.08, primed);
   woodDHdxy *= mix(1.0, 0.3, primed);
 `;
 
@@ -229,6 +237,21 @@ const VERTEX_PARS = /* glsl */ `
 varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
 `;
+
+function hashSource(source: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
+ * three caches compiled programs by this key, so it must change whenever the injected GLSL
+ * does. Deriving it from the source means an edit can never silently reuse a stale program.
+ */
+const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + VERTEX_PARS + RING_MM)}`;
 
 export function createTimberMaterial(
   loops: ProfileLoops,
@@ -245,12 +268,14 @@ export function createTimberMaterial(
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    roughness: 0.78,
+    roughness: 0.62,
     metalness: 0,
-    specularIntensity: 0.22,
+    // Wood is a plain dielectric (IOR ~1.45, specular ~0.5); slightly under that because the
+    // open surface scatters some of what a polished dielectric would reflect.
+    specularIntensity: 0.42,
     // Highlights stretch along the fibres. The mesh UVs put u along the length so the
     // anisotropy tangent follows the grain on every face. Paint has no fibre direction.
-    anisotropy: primed ? 0 : 0.4,
+    anisotropy: primed ? 0 : 0.5,
     anisotropyRotation: 0,
   });
 
@@ -274,7 +299,7 @@ export function createTimberMaterial(
     // THREE.Color already converts hex (sRGB) into the linear working space.
     uEarlywood: { value: new THREE.Color('#eadcbf') },
     uLatewood: { value: new THREE.Color('#bd9062') },
-    uBumpScale: { value: 0.5 },
+    uBumpScale: { value: 0.22 },
     uGrainCross: { value: direction === 'cross' ? 1 : 0 },
     uPrimed: { value: primed ? 1 : 0 },
     // Factory primer: a soft warm white rather than a paper white.
@@ -296,6 +321,6 @@ export function createTimberMaterial(
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'
       );
   };
-  material.customProgramCacheKey = () => 'timber-pine-solid-v6';
+  material.customProgramCacheKey = () => SHADER_CACHE_KEY;
   return material;
 }
