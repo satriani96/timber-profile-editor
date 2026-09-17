@@ -1,9 +1,10 @@
 import paper from 'paper';
-import { PROFILE_LAYER, itemLayerName } from '../canvas/layers';
+import { DIMENSIONS_LAYER, itemLayerName } from '../canvas/layers';
 
 /** Length of the rendered offcut, framed whole like a photographed sample. */
 export const SAMPLE_LENGTH_MM = 300;
-const JOIN_TOLERANCE_MM = 1e-3;
+/** Same as sketch touch distance — CAD fillets often miss by a few microns. */
+const JOIN_TOLERANCE_MM = 0.05;
 const SAMPLE_STEP_MM = 0.4;
 const MIN_AREA = 1e-4;
 
@@ -24,10 +25,10 @@ export class ProfileSolidError extends Error {
 type Polyline = { points: paper.Point[] };
 
 function isProfilePath(item: paper.Item): item is paper.Path {
-  if (!(item instanceof paper.Path)) return false;
+  if (!(item instanceof paper.Path) || !item.visible) return false;
   if (item.data?.isTemporary || item.data?.isMeasurement || item.data?.isDimension) return false;
   if (item.length <= 0 || item.segments.length < 2) return false;
-  return itemLayerName(item) === PROFILE_LAYER;
+  return itemLayerName(item) !== DIMENSIONS_LAYER;
 }
 
 function collectProfilePaths(project: paper.Project): paper.Path[] {
@@ -47,7 +48,7 @@ function reversePoints(points: paper.Point[]): paper.Point[] {
   return points.map((point) => point.clone()).reverse();
 }
 
-/** Stitch open Profile-layer paths whose endpoints meet into closed loops. */
+/** Stitch open sketch paths whose endpoints meet into closed loops. */
 export function joinOpenPaths(paths: paper.Path[]): { closed: paper.Path[]; leftover: number } {
   const remaining: Polyline[] = paths.filter((path) => !path.closed).map((path) => ({ points: clonePoints(path) }));
   const closed: paper.Path[] = paths.filter((path) => path.closed);
@@ -152,12 +153,9 @@ export function extractProfileLoops(project: paper.Project = paper.project): Pro
     throw new ProfileSolidError('Draw a closed profile outline to preview.');
   }
 
-  const { closed, leftover } = joinOpenPaths(paths);
+  const { closed } = joinOpenPaths(paths);
   if (closed.length === 0) {
     throw new ProfileSolidError('Close the profile outline to preview.');
-  }
-  if (leftover > 0) {
-    throw new ProfileSolidError('The drawing has extra geometry that is not a single closed profile outline.');
   }
 
   const ranked = [...closed].sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
@@ -166,16 +164,11 @@ export function extractProfileLoops(project: paper.Project = paper.project): Pro
     throw new ProfileSolidError('The profile outline has no area.');
   }
 
-  const holes: paper.Path[] = [];
-  for (const candidate of ranked.slice(1)) {
-    if (Math.abs(candidate.area) < MIN_AREA) {
-      throw new ProfileSolidError('The drawing has extra geometry that is not a single closed profile outline.');
-    }
-    if (!loopInside(outerPath, candidate)) {
-      throw new ProfileSolidError('The drawing has more than one profile outline.');
-    }
-    holes.push(candidate);
-  }
+  // CAD sketches often include construction and a second island. Preview the
+  // largest closed outline; only treat loops inside it as holes.
+  const holes = ranked
+    .slice(1)
+    .filter((candidate) => Math.abs(candidate.area) >= MIN_AREA && loopInside(outerPath, candidate));
 
   const outer = withWinding(sampleLoopYUp(outerPath), false);
   const holeLoops = holes.map((hole) => withWinding(sampleLoopYUp(hole), true));
