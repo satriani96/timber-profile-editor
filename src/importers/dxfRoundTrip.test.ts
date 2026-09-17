@@ -90,6 +90,70 @@ describe('DXF export/import round trip', () => {
     });
   });
 
+  // A SolidWorks-style spline whose two cubic spans are each straight: the control points are
+  // collinear along the bottom edge, then along the left edge, meeting at a sharp corner.
+  const straightSpanSpline = () =>
+    dxf([
+      0, 'SECTION', 2, 'ENTITIES',
+      0, 'SPLINE', 8, 'Layer 1', 70, 8, 71, 3, 72, 11, 73, 7, 74, 3,
+      40, 0, 40, 0, 40, 0, 40, 0, 40, 1, 40, 1, 40, 1, 40, 2, 40, 2, 40, 2, 40, 2,
+      10, 53.8288, 20, -6.0109, 30, 0,
+      10, 15.4955, 20, -6.0109, 30, 0,
+      10, -47.8379, 20, -6.0109, 30, 0,
+      10, -86.1712, 20, -6.0109, 30, 0,
+      10, -86.1712, 20, -0.0109, 30, 0,
+      10, -86.1712, 20, 6.9891, 30, 0,
+      10, -86.1712, 20, 12.9891, 30, 0,
+      11, 53.8288, 21, -6.0109, 31, 0,
+      11, -86.1712, 21, -6.0109, 31, 0,
+      11, -86.1712, 21, 12.9891, 31, 0,
+      0, 'ENDSEC', 0, 'EOF',
+    ]);
+
+  it('writes a spline whose spans are all straight as a polyline', () => {
+    expect(importDxfText(straightSpanSpline(), 1).imported).toBe(1);
+
+    const text = buildDxf();
+    expect(text).not.toContain('\nSPLINE\n');
+
+    const entity = parseDxf(text).entities[0];
+    expect(entity.type).toBe('POLYLINE');
+    if (entity.type !== 'POLYLINE') return;
+    // The sharp corner survives: three vertices, no bulge.
+    expect(entity.vertices).toHaveLength(3);
+    expect(entity.vertices.map((v) => [v.x, v.y])).toEqual([
+      [53.8288, -6.0109],
+      [-86.1712, -6.0109],
+      [-86.1712, 12.9891],
+    ]);
+    expect(entity.vertices.every((v) => !v.bulge)).toBe(true);
+  });
+
+  /**
+   * Fit points are a second, competing definition of the curve. Fusion prefers them over the
+   * control net and re-interpolates, which bowed straight runs out into a blob; this app
+   * prefers the control net, so the defect was invisible to our own round trip.
+   */
+  it('writes splines with a control net only, never fit points', () => {
+    const spline = new paper.Path({
+      segments: [
+        [500, 0],
+        [540, 60],
+        [600, 20],
+        [660, 80],
+      ],
+      strokeColor: 'black',
+    });
+    spline.smooth({ type: 'catmull-rom', factor: 0.5 });
+    spline.data = { isSpline: true, fitPoints: spline.segments.map((s) => s.point.clone()) };
+
+    const entity = parseDxf(buildDxf()).entities[0];
+    expect(entity.type).toBe('SPLINE');
+    if (entity.type !== 'SPLINE') return;
+    expect(entity.fitPoints).toHaveLength(0);
+    expect(entity.controlPoints).toHaveLength(10);
+  });
+
   it('exports fillet-like curves as true arcs', () => {
     const arc = new paper.Path.Arc({ from: [50, 0], through: [35.355, 35.355], to: [0, 50], strokeColor: 'black' });
     arc.data = {};

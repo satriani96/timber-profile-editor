@@ -153,11 +153,9 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
     }
   }
 
-  if (data.isSpline && path.hasHandles()) {
-    exportSpline(path, dxf);
-    return;
-  }
-
+  // Before the spline branch: CAD splines are often straight runs with the handles left
+  // lying along the chord (a drafted L or rebate saved as one spline). Those are polylines,
+  // and writing them as lines keeps them snappable and offsettable downstream.
   if (path.curves.every((c) => c.isStraight())) {
     const vertices = path.segments.map((s) => dxfVertex(s.point));
     if (path.closed) {
@@ -167,6 +165,11 @@ function exportPath(path: paper.Path, dxf: DxfWriter): void {
     } else {
       dxf.addLWPolyline(vertices, opts);
     }
+    return;
+  }
+
+  if (data.isSpline && path.hasHandles()) {
+    exportSpline(path, dxf);
     return;
   }
 
@@ -224,15 +227,23 @@ export function fitCircularArc(curve: paper.Curve) {
   return { center, radius, ...arcAngles(center, start, mid, end) };
 }
 
-/** Writes the path's cubic Bézier curves as an exact degree-3 NURBS. */
+/**
+ * Writes the path's cubic Bézier curves as an exact degree-3 NURBS.
+ *
+ * Control points only, never fit points. A DXF spline may carry both, but they are two
+ * different definitions of the curve and readers disagree on which wins: this app (and the
+ * spec's preferred form) builds from the control net, while Fusion treats any spline with
+ * fit points as a fit-point spline and re-interpolates a smooth curve through them,
+ * discarding the control net. The segment anchors we used to emit as fit points are far too
+ * sparse to pin the curve down — on a two-span spline that is straight along each span, the
+ * three anchors let Fusion bow the whole thing out into a blob. The control net alone is
+ * exact and unambiguous.
+ */
 function exportSpline(path: paper.Path, dxf: DxfWriter): void {
   const { controlPoints, knots } = pathToBezierSpline(path);
-  const fitPoints = path.segments.map((s) => dxfPoint(s.point));
-  if (path.closed) fitPoints.push(dxfPoint(path.firstSegment.point));
   dxf.addSpline(
     {
       controlPoints: controlPoints.map((p) => point3d(p.x, -p.y, 0)),
-      fitPoints,
       knots,
       degreeCurve: 3,
       flags: SplineFlags.Planar | (path.closed ? SplineFlags.Closed : 0),
