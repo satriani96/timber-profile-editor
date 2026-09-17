@@ -4,7 +4,7 @@ import { BASE_STROKE_WIDTH } from '../../components/sketch/constants';
 import { classifyLinearKind, createDimension, measureDimension, rebuildDimension, type DimensionData } from '../dimensions';
 import { findSnap, type SnapConfig } from '../../utils/snapHelpers';
 import { isPrimaryButton } from './drawingState';
-import { pickDimensionTarget } from './dimensionPick';
+import { pickDimensionTarget, type DimensionPick } from './dimensionPick';
 
 export interface DimensionToolState {
   isPanningRef: MutableRefObject<boolean>;
@@ -48,6 +48,7 @@ export function createDimensionTool(state: DimensionToolState) {
   let preview: paper.Group | null = null;
   let hoverClone: paper.Path | null = null;
   let hoverPath: paper.Path | null = null;
+  let hoverCurveIndex: number | null = null;
 
   function clearPreview() {
     preview?.remove();
@@ -58,6 +59,7 @@ export function createDimensionTool(state: DimensionToolState) {
     hoverClone?.remove();
     hoverClone = null;
     hoverPath = null;
+    hoverCurveIndex = null;
   }
 
   function finish() {
@@ -72,16 +74,28 @@ export function createDimensionTool(state: DimensionToolState) {
     finish();
   }
 
-  function highlightEntity(path: paper.Path) {
-    if (hoverPath === path && hoverClone?.isInserted()) return;
+  function pathFromCurve(curve: paper.Curve): paper.Path {
+    const clone = new paper.Path();
+    clone.moveTo(curve.point1);
+    clone.cubicCurveTo(curve.point1.add(curve.handle1), curve.point2.add(curve.handle2), curve.point2);
+    return clone;
+  }
+
+  function highlightPick(pick: Exclude<DimensionPick, { type: 'point' }>) {
+    const curveIndex = 'curveIndex' in pick ? pick.curveIndex : undefined;
+    const useCurve = curveIndex != null && pick.path.curves.length > 1 ? pick.path.curves[curveIndex] : null;
+    if (hoverPath === pick.path && hoverCurveIndex === (useCurve ? curveIndex! : null) && hoverClone?.isInserted()) {
+      return;
+    }
     clearHover();
-    hoverPath = path;
-    const clone = path.clone();
+    hoverPath = pick.path;
+    hoverCurveIndex = useCurve ? curveIndex! : null;
+    const clone = useCurve ? pathFromCurve(useCurve) : pick.path.clone();
     clone.data = { isTemporary: true };
     clone.selected = false;
     clone.fillColor = null;
     clone.strokeColor = new paper.Color(HOVER_COLOR);
-    clone.strokeWidth = (path.strokeWidth || BASE_STROKE_WIDTH / paper.view.zoom) + 1.5 / paper.view.zoom;
+    clone.strokeWidth = (pick.path.strokeWidth || BASE_STROKE_WIDTH / paper.view.zoom) + 1.5 / paper.view.zoom;
     clone.bringToFront();
     hoverClone = clone;
   }
@@ -149,7 +163,7 @@ export function createDimensionTool(state: DimensionToolState) {
       return;
     }
     if (pick) {
-      highlightEntity(pick.path);
+      highlightPick(pick);
       setCursor('pointer');
       return;
     }
