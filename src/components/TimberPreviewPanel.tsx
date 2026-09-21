@@ -37,8 +37,8 @@ function isGrainStyle(value: string): value is GrainStyle {
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const DIRECTIONS: { id: GrainDirection; label: string; title: string }[] = [
-  { id: 'long', label: 'Long', title: 'Grain along the length of the sample' },
-  { id: 'cross', label: 'Cross', title: 'Grain across the width, rotated 90°' },
+  { id: 'long', label: 'Long', title: 'End grain rings run the long way across the cut' },
+  { id: 'cross', label: 'Cross', title: 'Quartered from the log: end grain rings run the short way' },
 ];
 
 interface TimberPreviewPanelProps {

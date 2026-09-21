@@ -24,7 +24,7 @@ export function createTimberMesh(
 
   const geometry = extrudeProfile(outer, holes, length);
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
-  geometry.setAttribute('uv', grainUvs(geometry, direction));
+  geometry.setAttribute('uv', grainUvs(geometry));
 
   const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, length, grain, finish, direction));
   mesh.castShadow = true;
@@ -142,14 +142,13 @@ function addCaps(outer: Point2[], holes: Point2[][], length: number, positions: 
 }
 
 /**
- * UVs exist only to give the anisotropic highlight a tangent frame: u runs along the fibres
- * on faces that follow the grain, and across the faces where those fibres are cut.
+ * UVs exist only to give the anisotropic highlight a tangent frame. Fibres follow the log,
+ * which follows the extrusion, on both the long and the cross cut.
  */
-function grainUvs(geometry: THREE.BufferGeometry, direction: GrainDirection): THREE.BufferAttribute {
+function grainUvs(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
   const pos = geometry.getAttribute('position');
   const nrm = geometry.getAttribute('normal');
   const uv = new Float32Array(pos.count * 2);
-  const cross = direction === 'cross';
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const y = pos.getY(i);
@@ -157,19 +156,10 @@ function grainUvs(geometry: THREE.BufferGeometry, direction: GrainDirection): TH
     const nx = nrm.getX(i);
     const ny = nrm.getY(i);
     const nz = nrm.getZ(i);
-    if (cross) {
-      if (Math.abs(nx) > 0.7) {
-        uv[i * 2] = z * 0.01;
-        uv[i * 2 + 1] = y * 0.01;
-      } else {
-        uv[i * 2] = x * 0.01;
-        uv[i * 2 + 1] = (y * -nz + z * ny) * 0.01;
-      }
-    } else if (Math.abs(nz) > 0.7) {
+    if (Math.abs(nz) > 0.7) {
       uv[i * 2] = x * 0.01;
       uv[i * 2 + 1] = y * 0.01;
     } else {
-      // In-plane direction perpendicular to the length for v, so the frame is never degenerate.
       uv[i * 2] = z * 0.01;
       uv[i * 2 + 1] = (x * -ny + y * nx) * 0.01;
     }

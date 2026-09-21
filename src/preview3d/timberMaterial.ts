@@ -10,7 +10,10 @@ import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
  * distorted by low-frequency noise, with fine fibres running along the log. Because
  * the grain is evaluated in 3D at every surface point, end grain shows the ring arcs,
  * faces show cathedral figure where the profile cuts the rings, and the two always match.
- * Long grain follows the extrusion; cross grain rotates that log axis 90°.
+ * The log axis always follows the extrusion, so the docked ends stay end grain and the
+ * moulded faces stay face grain. Long puts the pith beyond the wide face, so the rings
+ * cross the long side of that end. Cross quarters the same log the other way — pith
+ * beyond the narrow face, like slicing a pizza — so those rings run the short side.
  */
 
 /** Ring pitch. Tighter rings put more fine grain lines across a planed face. */
@@ -22,8 +25,31 @@ const RING_MM = 5.0;
  */
 export type GrainStyle = 'crown' | 'flat' | 'quarter';
 
-/** Fibre direction relative to the extrusion. Independent of the sawn cut. */
+/** Which way the growth rings cross the docked end. The log axis does not move. */
 export type GrainDirection = 'long' | 'cross';
+
+/**
+ * Pith in the profile plane. Long sits it beyond the wide face, so end-grain rings run
+ * the long side of the cut. Cross sits it beyond the narrow face — the board taken out
+ * of the log like a pizza slice — so the same rings run the short side.
+ */
+export function pithForCut(
+  width: number,
+  height: number,
+  pithDistance: number,
+  pithLift: number,
+  direction: GrainDirection
+): { x: number; y: number } {
+  const beyondWide =
+    width >= height
+      ? { x: width * 0.2, y: height + pithDistance * pithLift }
+      : { x: width / 2 + pithDistance * pithLift, y: height * 0.7 };
+  const beyondNarrow =
+    width >= height
+      ? { x: width / 2 + pithDistance * pithLift, y: height * 0.5 }
+      : { x: width * 0.2, y: height + pithDistance * pithLift };
+  return direction === 'cross' ? beyondNarrow : beyondWide;
+}
 
 const GRAIN_STYLES: Record<GrainStyle, { pithFactor: number; pithLift: number; seed: THREE.Vector3 }> = {
   // Pith close to the face: big sweeping cathedrals.
@@ -70,7 +96,6 @@ uniform vec3 uEarlywood;
 uniform vec3 uLatewood;
 uniform float uBumpScale;
 uniform vec3 uSeed;
-uniform float uGrainCross;
 uniform float uCoatCover;
 uniform float uCoatGrain;
 uniform float uCoatRough;
@@ -178,18 +203,17 @@ vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirect
 `;
 
 const GLSL_WOOD_EVAL = /* glsl */ `
-  // Cross grain swaps X and Z so the log axis runs across the profile instead of along it.
-  vec3 woodP = mix(vWoodPos, vWoodPos.zyx, uGrainCross);
-  vec3 woodN = mix(vWoodNormal, vWoodNormal.zyx, uGrainCross);
+  // One log, axis along the extrusion. Long and Cross only move the pith in the profile
+  // plane, so the same faces stay face grain and the docked ends stay the cut.
+  vec3 woodP = vWoodPos;
   vec3 woodDx = dFdx(woodP);
   vec3 woodDy = dFdy(woodP);
   float woodPx = max(length(woodDx), length(woodDy));
   // End grain: cut across the fibres it is rougher, soaks up light and shows the rings as
   // crisp lines, which is what makes the profile shape read at a glance.
-  float endGrain = smoothstep(0.55, 0.9, abs(normalize(woodN).z));
+  float endGrain = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
   // A coat lies on the machined faces only: the docked ends of a sample are bare timber.
-  // Follows the sample's sawn ends (world Z), not the rotated fibre axis.
-  float cutEnd = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
+  float cutEnd = endGrain;
   float woodR = woodRadius(woodP);
   float woodAA = fwidth(woodR) / RING_MM;
   float woodLate = woodLatewood(woodR, woodAA, endGrain);
@@ -269,7 +293,7 @@ const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD 
 
 export function createTimberMaterial(
   loops: ProfileLoops,
-  length: number,
+  _length: number,
   style: GrainStyle = 'flat',
   finish: Finish = FINISHES[DEFAULT_FINISH],
   direction: GrainDirection = 'long'
@@ -278,7 +302,6 @@ export function createTimberMaterial(
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
   const grain = GRAIN_STYLES[style];
-  const woodWidth = direction === 'cross' ? length : width;
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -294,19 +317,12 @@ export function createTimberMaterial(
     anisotropyRotation: 0,
   });
 
-  // Boards are flat-sawn with the wide face tangential to the rings, so the pith sits out
-  // beyond the wider face: above a flat moulding, or beyond the camera-side (+x) face of a
-  // standing one. Only a handful of rings then cross that face, near-tangent, giving the
-  // broad flame figure of clear pine, while the end grain shows the same rings as arcs.
-  // How far the pith sits is a property of the log, not of how long the sample happens to be,
-  // so it is scaled by the profile in both directions. Scaling it by the length instead pushed
-  // the pith metres away when the fibres ran across the piece, which flattened the rings into
-  // bands that still followed the length, so the figure never visibly turned.
+  // How far the pith sits sets the figure (crown / flat / quarter). Which side it sits on
+  // is the Long/Cross cut: beyond the wide face the end-grain rings run the long way;
+  // beyond the narrow face they run the short way.
   const pithDistance = Math.max(60, grain.pithFactor * Math.max(width, height));
-  const pith =
-    woodWidth >= height
-      ? new THREE.Vector2(woodWidth * 0.2, height + pithDistance * grain.pithLift)
-      : new THREE.Vector2(woodWidth / 2 + pithDistance * grain.pithLift, height * 0.7);
+  const placed = pithForCut(width, height, pithDistance, grain.pithLift, direction);
+  const pith = new THREE.Vector2(placed.x, placed.y);
   // The shader samples everything at position + seed, so shift the pith by the same amount.
   pith.x += grain.seed.x;
   pith.y += grain.seed.y;
@@ -319,7 +335,6 @@ export function createTimberMaterial(
     uEarlywood: { value: new THREE.Color('#eadcbf') },
     uLatewood: { value: new THREE.Color('#bd9062') },
     uBumpScale: { value: 0.22 },
-    uGrainCross: { value: direction === 'cross' ? 1 : 0 },
     uCoatCover: { value: finish.cover },
     uCoatGrain: { value: finish.grain },
     uCoatRough: { value: finish.roughness },
