@@ -15,7 +15,10 @@ export function createTimberMesh(
   direction: GrainDirection = 'long'
 ): THREE.Mesh {
   const bounds = profileBounds(loops);
-  const arris = Math.min(1.0, 0.05 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
+  // Dressed timber carries about a 2 mm round on the arrises of a board and proportionally
+  // less on a small moulding. Under-rounding them is what makes an edge read as a drawn white
+  // line: the highlight has to land on a band wide enough to fall off across several pixels.
+  const arris = Math.min(2.0, 0.06 * Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY));
   const outer = softenArrises(loops.outer, arris);
   const holes = loops.holes.map((hole) => softenArrises(hole, arris));
 

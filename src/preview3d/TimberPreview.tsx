@@ -101,11 +101,16 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
       {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
           layout effects) is not torn down and re-run while the file streams in. */}
       <Suspense fallback={null}>
-        <Environment files={STUDIO_HDR} environmentIntensity={0.55} environmentRotation={envRotation} />
+        <Environment files={STUDIO_HDR} environmentIntensity={0.9} environmentRotation={envRotation} />
       </Suspense>
+      {/* A directional light is a point source, so every highlight it makes is as small as the
+          material's roughness allows: on a rounded arris that is a hard white line, which is
+          the single biggest tell of a CG surface. The studio HDR has real softboxes in it and
+          gives broad, soft, shaped reflections, so it carries the specular and this light is
+          left to model the form and cast the shadow. */}
       <directionalLight
         position={keyPosition}
-        intensity={1.9}
+        intensity={0.85}
         color="#fffaf3"
         castShadow
         shadow-mapSize={[2048, 2048]}

@@ -210,16 +210,15 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   woodColor *= 1.0 + endGrain * (endPore * 0.25 - woodLate * vec3(0.16, 0.24, 0.3));
   woodColor *= mix(vec3(1.0), vec3(0.74, 0.66, 0.57), endGrain);
 
-  // Rounded arrises: the normal swings quickly across a few pixels there. The geometry now
-  // carries the round, so the highlight comes from the lighting; the only material change is
-  // that the cutter leaves those edges a touch more burnished than the open face.
+  // Rounded arrises: the normal swings quickly across a few pixels there. The geometry carries
+  // the round, so the highlight is left entirely to the lighting. Making these edges glossier
+  // than the face, as a burnished cutter mark would, only sharpens them into a plastic line.
   float arris = smoothstep(0.04, 0.25, length(fwidth(vWoodNormal)));
 
   // Planed clear pine has a soft satin sheen (roughness around 0.6); the dense latewood is a
   // little glossier than the absorbent earlywood, the fibre breaks the highlight into
   // streaks, and the cut end is rougher and duller.
   float woodRough = clamp(0.62 - woodLate * 0.08 + woodFib * 0.14 + endGrain * 0.24, 0.42, 0.95);
-  woodRough -= arris * 0.08;
 
   // No relief on the arrises: the finite-difference bump is unstable where the normal turns
   // fast and only adds noise to an edge that should read as a clean highlight.
@@ -241,7 +240,10 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // dark oil goes bronze: the few percent of pine showing is far brighter than the pigment.
   vec3 underCoat = mix(woodColor, vec3(dot(woodColor, vec3(0.2126, 0.7152, 0.0722))), coat * 0.75);
   woodColor = mix(underCoat, pigment, clamp(coat * uptake, 0.0, 1.0));
-  woodRough = mix(woodRough, uCoatRough - arris * 0.08, coat);
+  // A coated face is not uniformly glossy: the coat thins over the dense latewood and pools in
+  // the open cells, so the sheen varies along the fibre. Without that the highlight is one
+  // unbroken band and even a correctly coloured face reads as plastic.
+  woodRough = mix(woodRough, uCoatRough + woodFib * 0.1 - woodLate * 0.04, coat);
   woodDHdxy *= mix(1.0, uCoatRelief, coat);
 `;
 
