@@ -7,13 +7,13 @@
  * record rather than another flag threaded through the preview.
  */
 
-export const FINISH_IDS = ['clear', 'primed', 'blackOiled'] as const;
+export const FINISH_IDS = ['clear', 'primed', 'oiled'] as const;
 export type FinishId = (typeof FINISH_IDS)[number];
 
 export interface Finish {
   label: string;
   title: string;
-  /** Pigment colour, sRGB. */
+  /** Pigment colour, sRGB. The stock colour of the product; the preview lets it be overridden. */
   color: string;
   /** How much of the timber the pigment covers: 0 leaves it bare, 1 hides it completely. */
   cover: number;
@@ -59,9 +59,9 @@ export const FINISHES: Record<FinishId, Finish> = {
     specular: 0.35,
     anisotropy: 0,
   },
-  blackOiled: {
-    label: 'Black oiled',
-    title: 'Charcoal pigmented oil soaked into the machined faces; the grain still reads through',
+  oiled: {
+    label: 'Oiled',
+    title: 'Pigmented oil soaked into the machined faces; the grain still reads through the tint',
     // Charcoal rather than a true black: pigmented oil never reads as ink, and a dead black
     // face would lose the profile's form to the shadows. Kept a shade cool, because the warm
     // key light and the timber under it bring it back to neutral.

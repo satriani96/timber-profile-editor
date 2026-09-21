@@ -35,14 +35,14 @@ describe('finishes', () => {
   it('recognises only the ids it defines', () => {
     expect(FINISH_IDS.every(isFinishId)).toBe(true);
     expect(isFinishId(DEFAULT_FINISH)).toBe(true);
-    expect(isFinishId('oiled')).toBe(false);
+    expect(isFinishId('blackOiled')).toBe(false);
   });
 });
 
 describe('createTimberMaterial', () => {
   it('takes its surface properties from the chosen finish', () => {
     for (const id of FINISH_IDS) {
-      const material = createTimberMaterial(LOOPS, 300, 'flat', id);
+      const material = createTimberMaterial(LOOPS, 300, 'flat', FINISHES[id]);
       expect(material.specularIntensity).toBe(FINISHES[id].specular);
       // Paint has no fibre direction, so only the uncoated and oiled faces stretch a highlight.
       expect(material.anisotropy).toBe(FINISHES[id].anisotropy);

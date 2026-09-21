@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
-import { DEFAULT_FINISH, FINISHES, type FinishId } from './finishes';
+import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
 
 /**
  * Solid (3D) procedural clear-pine material.
@@ -271,14 +271,13 @@ export function createTimberMaterial(
   loops: ProfileLoops,
   length: number,
   style: GrainStyle = 'flat',
-  finishId: FinishId = DEFAULT_FINISH,
+  finish: Finish = FINISHES[DEFAULT_FINISH],
   direction: GrainDirection = 'long'
 ): THREE.MeshPhysicalMaterial {
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
   const grain = GRAIN_STYLES[style];
-  const finish = FINISHES[finishId];
   const woodWidth = direction === 'cross' ? length : width;
 
   const material = new THREE.MeshPhysicalMaterial({

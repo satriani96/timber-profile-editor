@@ -5,7 +5,7 @@ import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import type { GrainDirection, GrainStyle } from './timberMaterial';
-import { DEFAULT_FINISH, type FinishId } from './finishes';
+import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 import {
   CAMERA_PRESETS,
@@ -59,7 +59,7 @@ interface SceneProps {
   length: number;
   grain: GrainStyle;
   grainDirection: GrainDirection;
-  finish: FinishId;
+  finish: Finish;
   preset: CameraPresetId;
 }
 
@@ -168,14 +168,14 @@ export default function TimberPreview({
   length,
   grain = 'flat',
   grainDirection = 'long',
-  finish = DEFAULT_FINISH,
+  finish = FINISHES[DEFAULT_FINISH],
   preset,
 }: {
   loops: ProfileLoops;
   length: number;
   grain?: GrainStyle;
   grainDirection?: GrainDirection;
-  finish?: FinishId;
+  finish?: Finish;
   preset: CameraPresetId;
 }) {
   return (

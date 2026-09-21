@@ -28,6 +28,8 @@ const GRAINS: { id: GrainStyle; label: string; title: string }[] = [
   { id: 'quarter', label: 'Quarter', title: 'Cut through the radius: quiet, near-parallel grain' },
 ];
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
 const DIRECTIONS: { id: GrainDirection; label: string; title: string }[] = [
   { id: 'long', label: 'Long', title: 'Grain along the length of the sample' },
   { id: 'cross', label: 'Cross', title: 'Grain across the width, rotated 90°' },
@@ -41,8 +43,25 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
   const [grainDirection, setGrainDirection] = useState<GrainDirection>('long');
-  const [finish, setFinish] = useState<FinishId>(DEFAULT_FINISH);
+  const [finishId, setFinishId] = useState<FinishId>(DEFAULT_FINISH);
   const [preset, setPreset] = useState<CameraPresetId>(DEFAULT_CAMERA_PRESET);
+  // The finish's stock colour, and whatever is in the box while it is being typed. Only a
+  // complete hex reaches the render, so the sample does not flicker through half-typed colours.
+  const [color, setColor] = useState(FINISHES[DEFAULT_FINISH].color);
+  const [colorDraft, setColorDraft] = useState(FINISHES[DEFAULT_FINISH].color);
+  const finish = useMemo(() => ({ ...FINISHES[finishId], color }), [color, finishId]);
+
+  const chooseFinish = (id: FinishId) => {
+    setFinishId(id);
+    setColor(FINISHES[id].color);
+    setColorDraft(FINISHES[id].color);
+  };
+
+  const enterColor = (value: string) => {
+    setColorDraft(value);
+    if (HEX_COLOR.test(value)) setColor(value.toLowerCase());
+  };
+
   const result = useMemo(() => {
     try {
       return { ok: true as const, loops: extractProfileLoops() };
@@ -72,7 +91,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             3D preview
           </h2>
           <p className="min-w-0 flex-1 text-gray-600">
-            {FINISHES[finish].label} pine sample, generated from the current drawing
+            {FINISHES[finishId].label} pine sample, generated from the current drawing
           </p>
           <label className="flex items-center gap-1.5 text-gray-700">
             View
@@ -132,14 +151,14 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             Finish
             <select
               aria-label="Finish"
-              title={FINISHES[finish].title}
-              value={finish}
+              title={FINISHES[finishId].title}
+              value={finishId}
               onChange={(event) => {
                 const value = event.target.value;
                 if (!isFinishId(value)) {
                   throw new Error(`Unknown finish: ${value}`);
                 }
-                setFinish(value);
+                chooseFinish(value);
               }}
               className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700"
             >
@@ -150,6 +169,29 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
               ))}
             </select>
           </label>
+          {FINISHES[finishId].cover > 0 && (
+            <label
+              className="flex items-center gap-1.5 text-gray-700"
+              title="Colour of the coat. Starts at the stock product colour; type any hex to try another."
+            >
+              Colour
+              <input
+                type="color"
+                aria-label="Finish colour"
+                value={color}
+                onChange={(event) => enterColor(event.target.value)}
+                className="h-6 w-6 shrink-0 cursor-pointer rounded-sm border-0 bg-transparent p-0"
+              />
+              <input
+                aria-label="Finish colour hex"
+                value={colorDraft}
+                spellCheck={false}
+                onChange={(event) => enterColor(event.target.value.trim())}
+                onBlur={() => setColorDraft(color)}
+                className="w-20 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-gray-700"
+              />
+            </label>
+          )}
           <button
             type="button"
             className="rounded px-3 py-1 text-gray-700 hover:bg-gray-100"
