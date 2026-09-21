@@ -298,7 +298,11 @@ export function createTimberMaterial(
   // beyond the wider face: above a flat moulding, or beyond the camera-side (+x) face of a
   // standing one. Only a handful of rings then cross that face, near-tangent, giving the
   // broad flame figure of clear pine, while the end grain shows the same rings as arcs.
-  const pithDistance = Math.max(60, grain.pithFactor * Math.max(woodWidth, height));
+  // How far the pith sits is a property of the log, not of how long the sample happens to be,
+  // so it is scaled by the profile in both directions. Scaling it by the length instead pushed
+  // the pith metres away when the fibres ran across the piece, which flattened the rings into
+  // bands that still followed the length, so the figure never visibly turned.
+  const pithDistance = Math.max(60, grain.pithFactor * Math.max(width, height));
   const pith =
     woodWidth >= height
       ? new THREE.Vector2(woodWidth * 0.2, height + pithDistance * grain.pithLift)
