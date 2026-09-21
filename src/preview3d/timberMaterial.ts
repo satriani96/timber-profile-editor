@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
+import { DEFAULT_FINISH, FINISHES, type FinishId } from './finishes';
 
 /**
  * Solid (3D) procedural clear-pine material.
@@ -70,8 +71,11 @@ uniform vec3 uLatewood;
 uniform float uBumpScale;
 uniform vec3 uSeed;
 uniform float uGrainCross;
-uniform float uPrimed;
-uniform vec3 uPrimer;
+uniform float uCoatCover;
+uniform float uCoatGrain;
+uniform float uCoatRough;
+uniform float uCoatRelief;
+uniform vec3 uCoatColor;
 varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
 
@@ -183,7 +187,8 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // End grain: cut across the fibres it is rougher, soaks up light and shows the rings as
   // crisp lines, which is what makes the profile shape read at a glance.
   float endGrain = smoothstep(0.55, 0.9, abs(normalize(woodN).z));
-  // Primer follows the sample's sawn ends (world Z), not the rotated fibre axis.
+  // A coat lies on the machined faces only: the docked ends of a sample are bare timber.
+  // Follows the sample's sawn ends (world Z), not the rotated fibre axis.
   float cutEnd = smoothstep(0.55, 0.9, abs(normalize(vWoodNormal).z));
   float woodR = woodRadius(woodP);
   float woodAA = fwidth(woodR) / RING_MM;
@@ -224,13 +229,20 @@ const GLSL_WOOD_EVAL = /* glsl */ `
     woodHeight(woodP + woodDy, woodAA, woodPx, endGrain, endGrain) - woodH0
   ) * uBumpScale * (1.0 - arris);
 
-  // Primed finish: the machined faces carry a coat of matte primer while the cut ends stay
-  // bare timber. Primer fills most of the grain, so only a faint ghost of the relief remains.
-  float primed = uPrimed * (1.0 - cutEnd);
-  vec3 primerColor = uPrimer * (1.0 + woodFib * 0.03 + woodLate * 0.015);
-  woodColor = mix(woodColor, primerColor, primed);
-  woodRough = mix(woodRough, 0.82 - arris * 0.08, primed);
-  woodDHdxy *= mix(1.0, 0.3, primed);
+  // Applied finish. Pigment does not sit evenly on pine: the open earlywood drinks it and the
+  // dense latewood sheds it. So the coverage varies across each ring and the pigment itself is
+  // modulated by the fibre, which is what keeps the grain readable under a dark oil instead of
+  // the face going flat black, and leaves a faint ghost of the figure under primer.
+  float coat = uCoatCover * (1.0 - cutEnd);
+  float uptake = 1.0 - uCoatGrain * clamp(woodLate * 0.9 + woodFib * 0.5, -0.4, 1.0);
+  vec3 pigment = uCoatColor * (1.0 + uCoatGrain * (woodFib * 0.5 + woodLate * 0.3));
+  // Pigment lying in the open cells takes most of the timber's warmth with it, so what reads
+  // through a thin spot is the figure rather than the honey colour of raw pine. Without this a
+  // dark oil goes bronze: the few percent of pine showing is far brighter than the pigment.
+  vec3 underCoat = mix(woodColor, vec3(dot(woodColor, vec3(0.2126, 0.7152, 0.0722))), coat * 0.75);
+  woodColor = mix(underCoat, pigment, clamp(coat * uptake, 0.0, 1.0));
+  woodRough = mix(woodRough, uCoatRough - arris * 0.08, coat);
+  woodDHdxy *= mix(1.0, uCoatRelief, coat);
 `;
 
 const VERTEX_PARS = /* glsl */ `
@@ -257,25 +269,27 @@ export function createTimberMaterial(
   loops: ProfileLoops,
   length: number,
   style: GrainStyle = 'flat',
-  primed = false,
+  finishId: FinishId = DEFAULT_FINISH,
   direction: GrainDirection = 'long'
 ): THREE.MeshPhysicalMaterial {
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
   const grain = GRAIN_STYLES[style];
+  const finish = FINISHES[finishId];
   const woodWidth = direction === 'cross' ? length : width;
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     roughness: 0.62,
     metalness: 0,
-    // Wood is a plain dielectric (IOR ~1.45, specular ~0.5); slightly under that because the
-    // open surface scatters some of what a polished dielectric would reflect.
-    specularIntensity: 0.42,
+    // Wood is a plain dielectric (IOR ~1.45, specular ~0.5); bare timber sits under that
+    // because the open surface scatters some of what a polished dielectric would reflect,
+    // while an oiled face fills those cells and comes back up towards it.
+    specularIntensity: finish.specular,
     // Highlights stretch along the fibres. The mesh UVs put u along the length so the
-    // anisotropy tangent follows the grain on every face. Paint has no fibre direction.
-    anisotropy: primed ? 0 : 0.5,
+    // anisotropy tangent follows the grain on every face.
+    anisotropy: finish.anisotropy,
     anisotropyRotation: 0,
   });
 
@@ -301,9 +315,11 @@ export function createTimberMaterial(
     uLatewood: { value: new THREE.Color('#bd9062') },
     uBumpScale: { value: 0.22 },
     uGrainCross: { value: direction === 'cross' ? 1 : 0 },
-    uPrimed: { value: primed ? 1 : 0 },
-    // Factory primer: a soft warm white rather than a paper white.
-    uPrimer: { value: new THREE.Color('#e3e0d8') },
+    uCoatCover: { value: finish.cover },
+    uCoatGrain: { value: finish.grain },
+    uCoatRough: { value: finish.roughness },
+    uCoatRelief: { value: finish.relief },
+    uCoatColor: { value: new THREE.Color(finish.color) },
   };
 
   material.onBeforeCompile = (shader) => {

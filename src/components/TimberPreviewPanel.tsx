@@ -12,6 +12,13 @@ import {
   isCameraPresetId,
   type CameraPresetId,
 } from '../preview3d/cameraPresets';
+import {
+  DEFAULT_FINISH,
+  FINISHES,
+  FINISH_IDS,
+  isFinishId,
+  type FinishId,
+} from '../preview3d/finishes';
 
 const TimberPreview = lazy(() => import('../preview3d/TimberPreview'));
 
@@ -34,7 +41,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
   const [grainDirection, setGrainDirection] = useState<GrainDirection>('long');
-  const [primed, setPrimed] = useState(false);
+  const [finish, setFinish] = useState<FinishId>(DEFAULT_FINISH);
   const [preset, setPreset] = useState<CameraPresetId>(DEFAULT_CAMERA_PRESET);
   const result = useMemo(() => {
     try {
@@ -65,7 +72,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             3D preview
           </h2>
           <p className="min-w-0 flex-1 text-gray-600">
-            Clear pine sample, generated from the current drawing
+            {FINISHES[finish].label} pine sample, generated from the current drawing
           </p>
           <label className="flex items-center gap-1.5 text-gray-700">
             View
@@ -121,12 +128,27 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
               </button>
             ))}
           </div>
-          <label
-            className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1 text-gray-700"
-            title="Machined faces shown with factory primer; the cut ends stay bare timber"
-          >
-            <input type="checkbox" checked={primed} onChange={(event) => setPrimed(event.target.checked)} />
-            Primed
+          <label className="flex items-center gap-1.5 text-gray-700">
+            Finish
+            <select
+              aria-label="Finish"
+              title={FINISHES[finish].title}
+              value={finish}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (!isFinishId(value)) {
+                  throw new Error(`Unknown finish: ${value}`);
+                }
+                setFinish(value);
+              }}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700"
+            >
+              {FINISH_IDS.map((id) => (
+                <option key={id} value={id} title={FINISHES[id].title}>
+                  {FINISHES[id].label}
+                </option>
+              ))}
+            </select>
           </label>
           <button
             type="button"
@@ -149,7 +171,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
                 length={SAMPLE_LENGTH_MM}
                 grain={grain}
                 grainDirection={grainDirection}
-                primed={primed}
+                finish={finish}
                 preset={preset}
               />
             </Suspense>

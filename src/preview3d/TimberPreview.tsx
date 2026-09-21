@@ -5,6 +5,7 @@ import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
 import type { GrainDirection, GrainStyle } from './timberMaterial';
+import { DEFAULT_FINISH, type FinishId } from './finishes';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 import {
   CAMERA_PRESETS,
@@ -58,20 +59,20 @@ interface SceneProps {
   length: number;
   grain: GrainStyle;
   grainDirection: GrainDirection;
-  primed: boolean;
+  finish: FinishId;
   preset: CameraPresetId;
 }
 
-function Scene({ loops, length, grain, grainDirection, primed, preset }: SceneProps) {
+function Scene({ loops, length, grain, grainDirection, finish, preset }: SceneProps) {
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
-    const next = createTimberMesh(loops, length, grain, primed, grainDirection);
+    const next = createTimberMesh(loops, length, grain, finish, grainDirection);
     setMesh(next);
     return () => {
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [grain, grainDirection, length, loops, primed]);
+  }, [finish, grain, grainDirection, length, loops]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -162,14 +163,14 @@ export default function TimberPreview({
   length,
   grain = 'flat',
   grainDirection = 'long',
-  primed = false,
+  finish = DEFAULT_FINISH,
   preset,
 }: {
   loops: ProfileLoops;
   length: number;
   grain?: GrainStyle;
   grainDirection?: GrainDirection;
-  primed?: boolean;
+  finish?: FinishId;
   preset: CameraPresetId;
 }) {
   return (
@@ -194,7 +195,7 @@ export default function TimberPreview({
         length={length}
         grain={grain}
         grainDirection={grainDirection}
-        primed={primed}
+        finish={finish}
         preset={preset}
       />
     </Canvas>

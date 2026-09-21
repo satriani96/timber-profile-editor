@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { softenArrises } from './arris';
 import { createTimberMaterial, type GrainDirection, type GrainStyle } from './timberMaterial';
+import { DEFAULT_FINISH, type FinishId } from './finishes';
 import { profileBounds, type Point2, type ProfileLoops } from './profileSolid';
 
 /** Edges meeting at less than this angle are smoothed (sampled arcs); sharper arrises stay crisp. */
@@ -10,7 +11,7 @@ export function createTimberMesh(
   loops: ProfileLoops,
   length: number,
   grain: GrainStyle = 'flat',
-  primed = false,
+  finish: FinishId = DEFAULT_FINISH,
   direction: GrainDirection = 'long'
 ): THREE.Mesh {
   const bounds = profileBounds(loops);
@@ -22,7 +23,7 @@ export function createTimberMesh(
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
   geometry.setAttribute('uv', grainUvs(geometry, direction));
 
-  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, length, grain, primed, direction));
+  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, length, grain, finish, direction));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
