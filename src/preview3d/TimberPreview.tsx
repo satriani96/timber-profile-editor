@@ -33,7 +33,7 @@ function FramedCamera({
   azimuth: number;
   elevation: number;
 }) {
-  const { camera, size } = useThree();
+  const { camera, invalidate, size } = useThree();
   useLayoutEffect(() => {
     const perspective = camera as THREE.PerspectiveCamera;
     perspective.fov = FOV;
@@ -50,7 +50,10 @@ function FramedCamera({
     );
     camera.lookAt(target);
     camera.updateProjectionMatrix();
-  }, [azimuth, camera, elevation, radius, size.height, size.width, target]);
+    // Camera is mutated on the Three object, not through React props, so demand-mode
+    // would otherwise keep showing the previous framing.
+    invalidate();
+  }, [azimuth, camera, elevation, invalidate, radius, size.height, size.width, target]);
   return null;
 }
 
@@ -64,15 +67,18 @@ interface SceneProps {
 }
 
 function Scene({ loops, length, grain, grainDirection, finish, preset }: SceneProps) {
+  const invalidate = useThree((state) => state.invalidate);
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
     const next = createTimberMesh(loops, length, grain, finish, grainDirection);
     setMesh(next);
+    // VSM shadows need a couple of frames to settle; three is enough and then the loop stops.
+    invalidate(3);
     return () => {
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [finish, grain, grainDirection, length, loops]);
+  }, [finish, grain, grainDirection, invalidate, length, loops]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -182,6 +188,9 @@ export default function TimberPreview({
     <Canvas
       className="h-full w-full"
       camera={{ fov: FOV, near: NEAR, far: FAR }}
+      // Nothing in this scene animates. The default loop would redraw N8AO, VSM shadows and a
+      // 2x buffer every vsync and pin the GPU at 100% for as long as the panel is open.
+      frameloop="demand"
       shadows="variance"
       gl={{
         antialias: false,
@@ -192,7 +201,7 @@ export default function TimberPreview({
       }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
       // Always render at 2x: on a 1x display this is supersampling, which is what sharpens the
-      // fine grain and the arrises. The panel is small enough for this to be cheap.
+      // fine grain and the arrises. Cheap only because the frame is drawn when a setting changes.
       dpr={2}
     >
       <Scene
