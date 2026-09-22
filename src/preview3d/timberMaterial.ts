@@ -118,9 +118,10 @@ float woodRadius(vec3 p) {
     + (vnoise(vec3(q.x * 0.45 + 3.0, q.y * 0.45, q.z * 0.02)) - 0.5) * 0.6;
   // Grain runs about a degree off the length of the piece, as it does in sawn timber.
   float r = length(q.xy - uPith) + warp + ripple + drift + rag + q.z * 0.03;
-  // Good and lean years: ring width swings roughly 0.6x..1.4x while staying monotonic, so
-  // rings bunch into tight groups with wider bands between them instead of an even stripe.
-  return r + 4.0 * sin(r * 0.045) + 1.2 * sin(r * 0.2 + 1.7);
+  // Good and lean years, and a slower swing along the log so one stretch of the board
+  // grew tighter than the next. A sine of radius alone repeats the same stripe forever.
+  float along = 0.5 + 0.5 * sin(q.z * 0.02 + 1.1);
+  return r + (4.0 * sin(r * 0.045) + 1.2 * sin(r * 0.2 + 1.7)) * mix(0.6, 1.35, along);
 }
 
 // Latewood weight in 0..1. On a face the band is a fairly narrow line that eases in and out,
@@ -130,7 +131,9 @@ float woodRadius(vec3 p) {
 float woodLatewood(float r, float aa, float crisp) {
   float ring = floor(r / RING_MM);
   float phase = fract(r / RING_MM);
-  float start = mix(0.45 + 0.25 * hash13(vec3(ring, 2.7, 9.1)), 0.5, crisp);
+  // A face is mostly earlywood. Latewood is a line near the end of the ring, not a band
+  // that fills half of it. On the cut end the same ring opens up and every line shows.
+  float start = mix(0.66 + 0.12 * hash13(vec3(ring, 2.7, 9.1)), 0.5, crisp);
   // On a face some rings barely register and others are strong: that variation in line
   // weight is what separates real grain from a printed pattern. On a cut end every ring shows.
   float depthVar = hash13(vec3(ring, 8.3, 0.4));
@@ -219,14 +222,17 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float woodLate = woodLatewood(woodR, woodAA, endGrain);
   float woodFib = woodFibre(woodP, woodPx);
 
-  // Large, slow colour drift along the board: heartwood runs a touch warmer and pinker,
-  // sapwood paler and cooler.
-  float tint = fbm(vec3(woodP.x * 0.03, woodP.y * 0.03, woodP.z * 0.0025)) - 0.5;
-  // Face bands stay a little translucent; end grain gets the full ring contrast.
-  float bandWeight = mix(0.9, 1.0, endGrain);
-  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.12, 0.0, 1.0));
-  woodColor *= 1.0 + tint * vec3(0.07, 0.02, -0.05);
+  // Heartwood is a region of the log, tens of centimetres long, not a wash over every pixel.
+  float heart = smoothstep(0.46, 0.62, fbm(vec3(woodP.z * 0.004, woodP.x * 0.008, 2.4)));
+  // Face bands stay a line; end grain gets the full ring contrast.
+  float bandWeight = mix(0.85, 1.0, endGrain);
+  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.08, 0.0, 1.0));
+  woodColor *= mix(vec3(1.0), vec3(1.04, 0.98, 0.92), heart);
   woodColor *= 1.0 + woodFib * vec3(0.16, 0.19, 0.24);
+  // A resin streak: rare, long, amber. A canal in the wood, not a crack or a stain.
+  float resin = smoothstep(0.8, 0.9, vnoise(vec3(woodP.x * 0.05, woodP.y * 0.05, woodP.z * 0.003)));
+  resin *= smoothstep(0.62, 0.78, vnoise(vec3(woodP.x * 0.35, woodP.y * 0.35, woodP.z * 0.008)));
+  woodColor = mix(woodColor, woodColor * vec3(1.2, 0.9, 0.5), resin * 0.35);
   // Open cells on the end grain: darker, redder rings and a faintly mottled earlywood. Light
   // goes down the cut cells and is absorbed, so the whole end reads darker and more saturated
   // (warmer) than the planed faces, not greyer.
@@ -271,6 +277,17 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   woodDHdxy *= mix(1.0, uCoatRelief, coat);
 `;
 
+// Applied after the light is summed. Only the grazing edge and the cut end pick up a warmer
+// leak, and the tint is darker than the face so it cannot push a planed surface into white.
+// A coat of primer is a film and blocks it; oil does not.
+const GLSL_SCATTER = /* glsl */ `
+  float woodFacing = saturate(dot(normalize(normal), geometryViewDir));
+  float woodEdge = pow(1.0 - woodFacing, 2.0);
+  float woodScatter = (woodEdge * 0.18 + endGrain * 0.16) * (1.0 - woodLate * 0.4);
+  woodScatter *= mix(1.0, 0.15, coat);
+  outgoingLight += totalDiffuse * vec3(0.72, 0.4, 0.2) * woodScatter;
+`;
+
 const VERTEX_PARS = /* glsl */ `
 varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
@@ -289,7 +306,7 @@ function hashSource(source: string): string {
  * three caches compiled programs by this key, so it must change whenever the injected GLSL
  * does. Deriving it from the source means an edit can never silently reuse a stale program.
  */
-const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + VERTEX_PARS + RING_MM)}`;
+const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + GLSL_SCATTER + VERTEX_PARS + RING_MM)}`;
 
 export function createTimberMaterial(
   loops: ProfileLoops,
@@ -352,6 +369,10 @@ export function createTimberMaterial(
       .replace('#include <common>', `#include <common>\n#define RING_MM ${RING_MM.toFixed(2)}\n${GLSL_NOISE}\n${GLSL_WOOD}`)
       .replace('#include <map_fragment>', `${GLSL_WOOD_EVAL}\n  diffuseColor.rgb *= woodColor;`)
       .replace('#include <roughnessmap_fragment>', '  float roughnessFactor = woodRough;')
+      .replace(
+        'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
+        `vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;\n${GLSL_SCATTER}`
+      )
       .replace(
         '#include <normal_fragment_maps>',
         '  normal = perturbWoodNormal(-vViewPosition, normal, woodDHdxy, faceDirection);'

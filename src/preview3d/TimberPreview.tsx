@@ -132,6 +132,9 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
         shadow-camera-bottom={-extent * 0.7}
       />
       <directionalLight position={fillPosition} intensity={0.3} color="#f2f4f8" />
+      {/* Ground bounce only. A bright sky colour on this light also lit the top face and
+          lifted it into the highlights. */}
+      <hemisphereLight args={['#1c1814', '#b08968', 0.4]} />
       <primitive object={mesh} />
       {/* Ground shadow as a product sits on a white sweep. A dim, near-overhead light casts a
           wide-blurred VSM shadow onto a plane that shows nothing but the shadow it receives, so
@@ -163,7 +166,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
       {/* Ambient occlusion only. The depth-of-field effect writes an opaque alpha channel, which
           would kill the transparent background, so focus fall-off is left to the lens choice. */}
       <EffectComposer multisampling={8}>
-        <N8AO aoRadius={extent * 0.05} distanceFalloff={extent * 0.1} intensity={1.2} quality="medium" />
+        <N8AO aoRadius={extent * 0.05} distanceFalloff={extent * 0.1} intensity={1.0} quality="medium" />
       </EffectComposer>
     </>
   );
