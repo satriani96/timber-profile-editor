@@ -501,8 +501,9 @@ function SketchCanvas(
 
   // --- Tool activation ---
   useEffect(() => {
+    // Tools only exist once Paper is wired; until then Paper would default to whichever tool it created first.
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!paperReady || !canvas) return;
     canvas.style.cursor = TOOL_CURSORS[activeTool];
 
     // Switching commands cancels whatever was in progress (except a temporary Space-pan).
@@ -530,7 +531,7 @@ function SketchCanvas(
       isDrawingSplineRef.current = false;
     }
     tools[activeTool].current?.activate();
-  }, [activeTool, cancelCurrentDrawing, cancelDimension, cancelMarquee, cancelMirror, cancelPaste, cancelSpline, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
+  }, [paperReady, activeTool, cancelCurrentDrawing, cancelDimension, cancelMarquee, cancelMirror, cancelPaste, cancelSpline, cancelTransform, clearTransientVisuals, finishCurrentFilletOperation, isDrawingLineRef]);
 
   // --- Canvas mouse listeners: wheel zoom, right/middle-button pan, spline double-click ---
   useEffect(() => {
