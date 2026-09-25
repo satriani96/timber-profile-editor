@@ -22,6 +22,34 @@ const FAR = 6000;
 /** Small photographic studio, CC0 from Poly Haven; shipped locally so the preview has no CDN dependency. */
 const STUDIO_HDR = '/hdr/studio_small_09_1k.hdr';
 
+/**
+ * Shadow catcher for the white sweep. The shadow fades to nothing a short way outside the
+ * piece's footprint: past that the ground only ever showed the edge of a shadow camera's
+ * frustum, which on the low end view lands in frame as a line across the floor.
+ */
+function createGroundShadowMaterial(halfWidth: number, halfLength: number, extent: number): THREE.ShadowMaterial {
+  const material = new THREE.ShadowMaterial({ transparent: true, opacity: 0.45, color: '#2a1e12' });
+  const uniforms = {
+    uFootprint: { value: new THREE.Vector2(halfWidth, halfLength) },
+    uFade: { value: new THREE.Vector2(extent * 0.15, extent * 0.45) },
+  };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 uFootprint;\nuniform vec2 uFade;\nvarying vec2 vGroundXZ;')
+      .replace(
+        'gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );',
+        `float groundOut = length(max(abs(vGroundXZ) - uFootprint, 0.0));
+  gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) * ( 1.0 - smoothstep( uFade.x, uFade.y, groundOut ) ) );`
+      );
+  };
+  material.customProgramCacheKey = () => 'timber-ground-shadow-fade';
+  return material;
+}
+
 function FramedCamera({
   target,
   radius,
@@ -92,6 +120,11 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
   const extent = Math.max(width, height, length);
   const rig = useMemo(() => studioRigQuaternion(azimuth, elevation), [azimuth, elevation]);
   const envRotation = useMemo(() => studioEnvironmentRotation(azimuth, elevation), [azimuth, elevation]);
+  const groundMaterial = useMemo(
+    () => createGroundShadowMaterial(width / 2, length / 2, extent),
+    [extent, length, width]
+  );
+  useLayoutEffect(() => () => groundMaterial.dispose(), [groundMaterial]);
 
   // Softbox key up and to the camera's right. Authored for the default three-quarter shot,
   // then rotated with the camera so every preset keeps the same catalogue lighting.
@@ -107,7 +140,9 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
       {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
           layout effects) is not torn down and re-run while the file streams in. */}
       <Suspense fallback={null}>
-        <Environment files={STUDIO_HDR} environmentIntensity={0.9} environmentRotation={envRotation} />
+        {/* The HDR fills from every direction. Any stronger and a light finish (primer) sits at
+            white on every face, the shading flattens out, and the piece reads as plastic. */}
+        <Environment files={STUDIO_HDR} environmentIntensity={0.72} environmentRotation={envRotation} />
       </Suspense>
       {/* A directional light is a point source, so every highlight it makes is as small as the
           material's roughness allows: on a rounded arris that is a hard white line, which is
@@ -116,7 +151,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
           left to model the form and cast the shadow. */}
       <directionalLight
         position={keyPosition}
-        intensity={0.85}
+        intensity={1.2}
         color="#fffaf3"
         castShadow
         shadow-mapSize={[2048, 2048]}
@@ -159,9 +194,8 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
         shadow-camera-bottom={-extent * 1.3}
       />
       {/* Oversized so its edge never crosses the frame (the AO pass would outline it). */}
-      <mesh rotation-x={-Math.PI / 2} position-y={-0.05} receiveShadow>
+      <mesh rotation-x={-Math.PI / 2} position-y={-0.05} receiveShadow material={groundMaterial}>
         <planeGeometry args={[length * 40, length * 40]} />
-        <shadowMaterial transparent opacity={0.45} color="#2a1e12" />
       </mesh>
       {/* Ambient occlusion only. The depth-of-field effect writes an opaque alpha channel, which
           would kill the transparent background, so focus fall-off is left to the lens choice. */}
@@ -199,6 +233,8 @@ export default function TimberPreview({
         antialias: false,
         alpha: true,
         premultipliedAlpha: false,
+        // Frames are drawn on demand, so the last one must survive for "Save image as" to read.
+        preserveDrawingBuffer: true,
         toneMapping: THREE.NeutralToneMapping,
         toneMappingExposure: 1.0,
       }}

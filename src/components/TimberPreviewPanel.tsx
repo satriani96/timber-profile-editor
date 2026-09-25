@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   SAMPLE_LENGTH_MM,
   describeProfileError,
@@ -42,10 +42,33 @@ const DIRECTIONS: { id: GrainDirection; label: string; title: string }[] = [
 ];
 
 interface TimberPreviewPanelProps {
+  /** Profile Sheet the drawing was opened from or saved to; names the saved image. */
+  sheetName: string | null;
   onClose: () => void;
 }
 
-export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps) {
+/** Write the preview's last frame to a PNG the user picks, named after the sheet. */
+async function saveRender(canvas: HTMLCanvasElement, name: string) {
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('The preview could not be encoded.'))), 'image/png')
+  );
+  let handle: FileSystemFileHandle;
+  try {
+    handle = await window.showSaveFilePicker({
+      suggestedName: `${name}.png`,
+      types: [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }],
+    });
+  } catch (error) {
+    // Cancelling the save dialog is not an error.
+    if (error instanceof DOMException && error.name === 'AbortError') return;
+    throw error;
+  }
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreviewPanelProps) {
   const [revision, setRevision] = useState(0);
   const [grain, setGrain] = useState<GrainStyle>('flat');
   const [grainDirection, setGrainDirection] = useState<GrainDirection>('long');
@@ -56,6 +79,22 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
   const [color, setColor] = useState(FINISHES[DEFAULT_FINISH].color);
   const [colorDraft, setColorDraft] = useState(FINISHES[DEFAULT_FINISH].color);
   const finish = useMemo(() => ({ ...FINISHES[finishId], color }), [color, finishId]);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const openMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (!viewportRef.current?.querySelector('canvas')) return;
+    event.preventDefault();
+    const box = viewportRef.current.getBoundingClientRect();
+    setMenu({ x: event.clientX - box.left, y: event.clientY - box.top });
+  };
+
+  const saveImage = () => {
+    setMenu(null);
+    const canvas = viewportRef.current?.querySelector('canvas');
+    if (!canvas) throw new Error('The 3D preview has no canvas to save.');
+    void saveRender(canvas, sheetName ?? 'untitled');
+  };
 
   const chooseFinish = (id: FinishId) => {
     setFinishId(id);
@@ -78,11 +117,24 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      if (menu) setMenu(null);
+      else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [menu, onClose]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('blur', close);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('blur', close);
+    };
+  }, [menu]);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4">
@@ -221,7 +273,7 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             )}
           </div>
         </div>
-        <div className="relative min-h-0 flex-1">
+        <div ref={viewportRef} className="relative min-h-0 flex-1" onContextMenu={openMenu}>
           {result.ok ? (
             <Suspense
               fallback={<p className="p-8 text-center text-gray-600">Loading preview…</p>}
@@ -237,6 +289,24 @@ export default function TimberPreviewPanel({ onClose }: TimberPreviewPanelProps)
             </Suspense>
           ) : (
             <p className="px-8 py-16 text-center text-gray-700">{result.message}</p>
+          )}
+          {menu && (
+            <div
+              role="menu"
+              className="absolute z-10 min-w-40 rounded border border-black/10 bg-white py-1 shadow-lg"
+              style={{ left: menu.x, top: menu.y }}
+              // Keep the window listener from closing the menu before the click lands.
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-1.5 text-left text-gray-800 hover:bg-gray-100"
+                onClick={saveImage}
+              >
+                Save image as…
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -159,7 +159,12 @@ function App() {
           onClose={closeLibrary}
         />
       )}
-      {preview3dOpen && <TimberPreviewPanel onClose={() => setPreview3dOpen(false)} />}
+      {preview3dOpen && (
+        <TimberPreviewPanel
+          sheetName={nsSheet ? nsSheet.name || `Sheet ${nsSheet.id}` : null}
+          onClose={() => setPreview3dOpen(false)}
+        />
+      )}
       <StatusToast message={status} onDismiss={() => setStatus(null)} />
     </div>
   );

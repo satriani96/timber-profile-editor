@@ -165,14 +165,27 @@ float woodFibre(vec3 p, float px) {
     + hairs * 0.6 * hairFade;
 }
 
-// End grain is cut across the fibres, so it is a field of open cells: a soft mottle with
-// sparse dark pores (resin canals and the odd torn cell), not an even sandy speckle.
-// Fades out as the cells approach pixel size.
+// End grain is cut across the fibres, so it is a field of open cells far finer than a pixel:
+// a faint, fine mottle with the odd resin canal as a tiny dark point. Anything coarser reads
+// as sandpaper. Fades out as the cells approach pixel size.
 float endGrainPores(vec3 p, float px) {
   vec3 q = p + uSeed;
-  float mottle = vnoise(q * 1.5) + 0.5 * vnoise(q * 4.0 + 3.0) - 0.75;
-  float specks = smoothstep(0.68, 0.78, vnoise(q * 3.5 + 7.0));
-  return (mottle * 0.6 - specks * 0.8) * (1.0 - smoothstep(0.15, 0.6, px));
+  float mottle = vnoise(q * 3.0) + 0.5 * vnoise(q * 7.0 + 3.0) - 0.75;
+  float canals = smoothstep(0.84, 0.9, vnoise(q * 6.0 + 7.0));
+  return (mottle * 0.35 - canals * 0.5) * (1.0 - smoothstep(0.1, 0.4, px));
+}
+
+// Rays: ribbons of cells running out from the pith. On a cut end they are hair-fine radial
+// lines crossing the rings, the detail that makes end grain read as wood under a close look.
+float endGrainRays(vec3 p, float px) {
+  vec2 d = p.xy + uSeed.xy - uPith;
+  float r = length(d);
+  // Arc length around the pith, so the rays keep a constant spacing in millimetres. The angle
+  // is measured from the pith-to-piece direction so its wrap-around never lands on the cut.
+  vec2 toPiece = normalize(uSeed.xy - uPith);
+  float across = atan(toPiece.x * d.y - toPiece.y * d.x, dot(toPiece, d)) * r;
+  float ray = vnoise(vec3(across * 3.2, r * 0.12, p.z * 0.01 + 5.0));
+  return smoothstep(0.62, 0.8, ray) * (1.0 - smoothstep(0.06, 0.25, px));
 }
 
 // Planer / moulder knife marks: shallow ripples running across the grain at a regular pitch
@@ -185,13 +198,25 @@ float planerMarks(vec3 p, float px) {
   return ripple * knifeVar * (1.0 - smoothstep(0.5, 1.3, px));
 }
 
+// Docking saw marks: a crosscut blade leaves faint scored arcs across the cut end at roughly
+// its tooth pitch. The blade centre sits well off the piece so the arcs are gentle curves,
+// and shifts with z so the two ends of the sample were not cut by the same pass.
+float sawMarks(vec3 p, float px) {
+  float d = length(p.xy - vec2(-180.0 + p.z * 0.3, 260.0));
+  float wander = (vnoise(vec3(p.xy * 0.08, 4.0 + p.z * 0.01)) - 0.5) * 0.6;
+  float score = 0.5 + 0.5 * cos((d + wander) * 6.2831853 / 0.9);
+  float tooth = 0.6 + 0.4 * vnoise(vec3(d * 0.4, 1.7, 3.0 + p.z * 0.01));
+  return score * tooth * (1.0 - smoothstep(0.08, 0.35, px));
+}
+
 // Planed pine is close to flat: the latewood stands a hair proud after the cutter and the
 // fibres barely register. Fibre and knife marks are kept faint so they never cross into a
 // woven texture; the fibre shows in colour and in the stretched highlight instead. Cut ends
-// keep their open-cell relief.
+// keep their open-cell relief and the saw's scoring.
 float woodHeight(vec3 p, float aa, float px, float crisp, float endGrain) {
   float relief = woodLatewood(woodRadius(p), aa, crisp) + woodFibre(p, px) * 0.15;
-  return relief + planerMarks(p, px) * 0.03 * (1.0 - endGrain) + endGrainPores(p, px) * 0.4 * endGrain;
+  return relief + planerMarks(p, px) * 0.03 * (1.0 - endGrain)
+    + (endGrainPores(p, px) * 0.4 + sawMarks(p, px) * 0.12) * endGrain;
 }
 
 vec3 perturbWoodNormal(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
@@ -226,9 +251,12 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float heart = smoothstep(0.46, 0.62, fbm(vec3(woodP.z * 0.004, woodP.x * 0.008, 2.4)));
   // Face bands stay a line; end grain gets the full ring contrast.
   float bandWeight = mix(0.85, 1.0, endGrain);
-  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFib * 0.08, 0.0, 1.0));
+  // The fibre noise is stretched along the log, so on a face it draws streaks; on the cut end
+  // it has no stretch left and would blot the earlywood, so it is mostly held back there.
+  float woodFibColor = woodFib * mix(1.0, 0.3, endGrain);
+  vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFibColor * 0.08, 0.0, 1.0));
   woodColor *= mix(vec3(1.0), vec3(1.04, 0.98, 0.92), heart);
-  woodColor *= 1.0 + woodFib * vec3(0.16, 0.19, 0.24);
+  woodColor *= 1.0 + woodFibColor * vec3(0.16, 0.19, 0.24);
   // A resin streak: rare, long, amber. A canal in the wood, not a crack or a stain.
   float resin = smoothstep(0.8, 0.9, vnoise(vec3(woodP.x * 0.05, woodP.y * 0.05, woodP.z * 0.003)));
   resin *= smoothstep(0.62, 0.78, vnoise(vec3(woodP.x * 0.35, woodP.y * 0.35, woodP.z * 0.008)));
@@ -238,7 +266,11 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // (warmer) than the planed faces, not greyer.
   float endPore = endGrainPores(woodP, woodPx);
   woodColor *= 1.0 + endGrain * (endPore * 0.25 - woodLate * vec3(0.16, 0.24, 0.3));
+  // Rays catch a touch more light than the cells around them.
+  woodColor *= 1.0 + endGrain * endGrainRays(woodP, woodPx) * 0.06;
   woodColor *= mix(vec3(1.0), vec3(0.74, 0.66, 0.57), endGrain);
+  // The blade's scoring burnishes a faint line of crushed fibre into each arc.
+  woodColor *= 1.0 - endGrain * sawMarks(woodP, woodPx) * 0.05;
 
   // Rounded arrises: the normal swings quickly across a few pixels there. The geometry carries
   // the round, so the highlight is left entirely to the lighting. Making these edges glossier
@@ -246,9 +278,12 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   float arris = smoothstep(0.04, 0.25, length(fwidth(vWoodNormal)));
 
   // Planed clear pine has a soft satin sheen (roughness around 0.6); the dense latewood is a
-  // little glossier than the absorbent earlywood, the fibre breaks the highlight into
-  // streaks, and the cut end is rougher and duller.
-  float woodRough = clamp(0.62 - woodLate * 0.08 + woodFib * 0.14 + endGrain * 0.24, 0.42, 0.95);
+  // little glossier than the absorbent earlywood and the fibre breaks the highlight into
+  // streaks. A cut end is a field of open, torn cells with no surface to reflect from: fully
+  // rough, with only the latewood, which the blade cuts cleanly, keeping a trace of sheen.
+  float faceRough = clamp(0.62 - woodLate * 0.08 + woodFib * 0.14, 0.42, 0.9);
+  float endRough = 1.0 - woodLate * 0.12;
+  float woodRough = mix(faceRough, endRough, endGrain);
 
   // No relief on the arrises: the finite-difference bump is unstable where the normal turns
   // fast and only adds noise to an edge that should read as a clean highlight.
@@ -288,6 +323,20 @@ const GLSL_SCATTER = /* glsl */ `
   outgoingLight += totalDiffuse * vec3(0.72, 0.4, 0.2) * woodScatter;
 `;
 
+// Applied once three has built the BRDF inputs. The finish's specular and fibre-aligned
+// highlight describe the machined faces; a cut end reflects a fraction of that and has no
+// fibre direction in its plane, so a stretched highlight across it reads as moulded plastic.
+const GLSL_END_GRAIN_BRDF = /* glsl */ `
+  float woodSpecKeep = mix(1.0, 0.3 + woodLate * 0.15, endGrain);
+  material.specularF90 *= woodSpecKeep;
+  material.specularColor *= woodSpecKeep;
+  material.specularColorBlended *= woodSpecKeep;
+  #ifdef USE_ANISOTROPY
+    material.anisotropy *= 1.0 - endGrain;
+    material.alphaT = mix(pow2(material.roughness), 1.0, pow2(material.anisotropy));
+  #endif
+`;
+
 const VERTEX_PARS = /* glsl */ `
 varying vec3 vWoodPos;
 varying vec3 vWoodNormal;
@@ -306,7 +355,7 @@ function hashSource(source: string): string {
  * three caches compiled programs by this key, so it must change whenever the injected GLSL
  * does. Deriving it from the source means an edit can never silently reuse a stale program.
  */
-const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + GLSL_SCATTER + VERTEX_PARS + RING_MM)}`;
+const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + GLSL_SCATTER + GLSL_END_GRAIN_BRDF + VERTEX_PARS + RING_MM)}`;
 
 export function createTimberMaterial(
   loops: ProfileLoops,
@@ -369,6 +418,7 @@ export function createTimberMaterial(
       .replace('#include <common>', `#include <common>\n#define RING_MM ${RING_MM.toFixed(2)}\n${GLSL_NOISE}\n${GLSL_WOOD}`)
       .replace('#include <map_fragment>', `${GLSL_WOOD_EVAL}\n  diffuseColor.rgb *= woodColor;`)
       .replace('#include <roughnessmap_fragment>', '  float roughnessFactor = woodRough;')
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n${GLSL_END_GRAIN_BRDF}`)
       .replace(
         'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
         `vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;\n${GLSL_SCATTER}`

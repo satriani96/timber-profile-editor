@@ -51,12 +51,16 @@ export const FINISHES: Record<FinishId, Finish> = {
     title: 'Factory primer on the machined faces; the cut ends stay bare timber',
     // Factory primer: a soft warm white rather than a paper white.
     color: '#e3e0d8',
-    // Paint is a film: it hides the timber and fills most of the grain, leaving a faint ghost.
+    // Paint is a film: it hides the timber, leaving a faint ghost of the figure.
     cover: 0.98,
     grain: 0.05,
-    roughness: 0.82,
-    relief: 0.3,
-    specular: 0.35,
+    // Primer is a flat coat, dead matte. Any sheen on it runs along a moulding as a smooth
+    // streak, worst at the grazing angle of the end view, and the piece reads as vinyl.
+    roughness: 0.96,
+    // Water-based primer raises the grain of pine, so the fibre still shows in the relief.
+    relief: 0.6,
+    // Low specular also lowers the grazing (F90) reflection, which is what washes the faces white.
+    specular: 0.12,
     anisotropy: 0,
   },
   oiled: {
