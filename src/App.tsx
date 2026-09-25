@@ -93,12 +93,8 @@ function App() {
     []
   );
 
-  const handleSaveSheet = useCallback(
-    async (sheet: ProfileSheetListItem) => {
-      if (sheet.hasDxf && sheet.id !== nsSheet?.id) {
-        const label = sheet.name || `Sheet ${sheet.id}`;
-        if (!window.confirm(`Replace the drawing already on ${label}?`)) return;
-      }
+  const saveToSheet = useCallback(
+    async (sheet: { id: string; name: string }) => {
       setNsBusy(true);
       try {
         const dxf = sketchCanvasRef.current?.exportDxfText() ?? '';
@@ -114,12 +110,24 @@ function App() {
         setNsBusy(false);
       }
     },
-    [nsSheet]
+    []
+  );
+
+  /** Save As: the sheet was picked in the library, so check before overwriting another drawing. */
+  const handleSaveSheet = useCallback(
+    async (sheet: ProfileSheetListItem) => {
+      if (sheet.hasDxf && sheet.id !== nsSheet?.id) {
+        const label = sheet.name || `Sheet ${sheet.id}`;
+        if (!window.confirm(`Replace the drawing already on ${label}?`)) return;
+      }
+      await saveToSheet(sheet);
+    },
+    [nsSheet, saveToSheet]
   );
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-white font-sans">
-      <div className="absolute top-0 left-0 w-full z-10">
+      <div className="absolute top-0 left-0 w-full z-30">
         <Toolbar
           activeTool={activeTool}
           setActiveTool={setActiveTool}
@@ -130,7 +138,8 @@ function App() {
           onRedo={() => sketchCanvasRef.current?.redo()}
           nsSheet={nsSheet}
           onOpenLibrary={() => void openLibrary('open')}
-          onSaveLibrary={() => void openLibrary('save')}
+          onSave={nsSheet ? () => void saveToSheet(nsSheet) : undefined}
+          onSaveAs={() => void openLibrary('save')}
           nsBusy={nsBusy}
           onTogglePreview3d={() => setPreview3dOpen((open) => !open)}
           preview3dOpen={preview3dOpen}

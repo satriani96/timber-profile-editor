@@ -28,7 +28,7 @@ const STUDIO_HDR = '/hdr/studio_small_09_1k.hdr';
  * frustum, which on the low end view lands in frame as a line across the floor.
  */
 function createGroundShadowMaterial(halfWidth: number, halfLength: number, extent: number): THREE.ShadowMaterial {
-  const material = new THREE.ShadowMaterial({ transparent: true, opacity: 0.45, color: '#2a1e12' });
+  const material = new THREE.ShadowMaterial({ transparent: true, opacity: 0.35, color: '#2a1e12' });
   const uniforms = {
     uFootprint: { value: new THREE.Vector2(halfWidth, halfLength) },
     uFade: { value: new THREE.Vector2(extent * 0.15, extent * 0.45) },
@@ -48,6 +48,19 @@ function createGroundShadowMaterial(halfWidth: number, halfLength: number, exten
   };
   material.customProgramCacheKey = () => 'timber-ground-shadow-fade';
   return material;
+}
+
+/**
+ * Mounts only once the Suspense boundary around the studio HDR resolves. With frames drawn on
+ * demand, nothing else redraws when the file arrives, so the first frame (unlit by the studio,
+ * shadows not yet settled) would otherwise stay on screen until a setting changed.
+ */
+function RedrawWhenLoaded() {
+  const invalidate = useThree((state) => state.invalidate);
+  useLayoutEffect(() => {
+    invalidate(3);
+  }, [invalidate]);
+  return null;
 }
 
 function FramedCamera({
@@ -129,6 +142,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
   // Softbox key up and to the camera's right. Authored for the default three-quarter shot,
   // then rotated with the camera so every preset keeps the same catalogue lighting.
   const keyPosition = rotateStudioPoint(extent * 1.1, extent * 1.4, extent * 0.9, target, rig);
+  const keyDistance = Math.hypot(keyPosition[0] - target.x, keyPosition[1] - target.y, keyPosition[2] - target.z);
   const fillPosition = rotateStudioPoint(-extent * 0.6, extent * 0.4, extent * 1.2, target, rig);
   const shadowPosition = rotateStudioPoint(-extent * 0.7, extent * 2.0, -extent * 0.55, target, rig);
 
@@ -143,6 +157,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
         {/* The HDR fills from every direction. Any stronger and a light finish (primer) sits at
             white on every face, the shading flattens out, and the piece reads as plastic. */}
         <Environment files={STUDIO_HDR} environmentIntensity={0.72} environmentRotation={envRotation} />
+        <RedrawWhenLoaded />
       </Suspense>
       {/* A directional light is a point source, so every highlight it makes is as small as the
           material's roughness allows: on a rounded arris that is a hard white line, which is
@@ -151,7 +166,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
           left to model the form and cast the shadow. */}
       <directionalLight
         position={keyPosition}
-        intensity={1.2}
+        intensity={0.95}
         color="#fffaf3"
         castShadow
         shadow-mapSize={[2048, 2048]}
@@ -166,6 +181,11 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
         shadow-camera-top={extent * 0.7}
         shadow-camera-bottom={-extent * 0.7}
       />
+      {/* The rest of the key comes from a point at the same softbox, so it falls off with
+          distance: the near part of the piece sits a touch brighter than the far part, as under
+          a real studio light. A directional key alone lights every flat face perfectly evenly.
+          Intensity is set so that at the piece's centre it adds the same as a directional 0.25. */}
+      <pointLight position={keyPosition} intensity={0.25 * keyDistance ** 2} decay={2} color="#fffaf3" />
       <directionalLight position={fillPosition} intensity={0.3} color="#f2f4f8" />
       {/* Ground bounce only. A bright sky colour on this light also lit the top face and
           lifted it into the highlights. */}

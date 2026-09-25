@@ -11,7 +11,9 @@ interface ToolbarProps {
   onRedo: () => void;
   nsSheet?: { id: string; name: string } | null;
   onOpenLibrary?: () => void;
-  onSaveLibrary?: () => void;
+  /** Save back to the loaded Profile Sheet. Absent when no sheet is loaded: then only Save As. */
+  onSave?: () => void;
+  onSaveAs?: () => void;
   nsBusy?: boolean;
   onTogglePreview3d?: () => void;
   preview3dOpen?: boolean;
@@ -95,12 +97,30 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   nsSheet,
   onOpenLibrary,
-  onSaveLibrary,
+  onSave,
+  onSaveAs,
   nsBusy,
   onTogglePreview3d,
   preview3dOpen,
 }) => {
   const tool = (id: SketchTool) => ({ isActive: activeTool === id, onClick: () => setActiveTool(id) });
+  const [saveMenuOpen, setSaveMenuOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!saveMenuOpen) return;
+    const close = () => setSaveMenuOpen(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', close);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', close);
+    };
+  }, [saveMenuOpen]);
 
   return (
     <div className="bg-gray-800 text-white p-2 shadow-md flex items-center space-x-1">
@@ -280,14 +300,54 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <span>Open</span>
         </button>
       )}
-      {onSaveLibrary && (
+      {onSaveAs && onSave && nsSheet && (
+        // Keep the window listener from closing the menu before a click inside it lands.
+        <div className="relative ml-2 flex" onPointerDown={(event) => event.stopPropagation()}>
+          <button
+            onClick={onSave}
+            disabled={nsBusy}
+            className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white pl-3 pr-2 py-1 rounded-l-md"
+            title={`Save this drawing back to ${nsSheet.name || `Sheet ${nsSheet.id}`}`}
+          >
+            {nsBusy ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={() => setSaveMenuOpen((open) => !open)}
+            disabled={nsBusy}
+            aria-haspopup="menu"
+            aria-expanded={saveMenuOpen}
+            className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white px-1.5 py-1 rounded-r-md border-l border-amber-800"
+            title="More save options"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+              <path d="M5.5 7.5L10 12l4.5-4.5z" />
+            </svg>
+            <span className="sr-only">More save options</span>
+          </button>
+          {saveMenuOpen && (
+            <div role="menu" className="absolute right-0 top-full z-20 mt-1 min-w-36 rounded-md bg-white py-1 text-gray-800 shadow-lg">
+              <button
+                role="menuitem"
+                className="block w-full whitespace-nowrap px-3 py-1.5 text-left hover:bg-gray-100"
+                onClick={() => {
+                  setSaveMenuOpen(false);
+                  onSaveAs();
+                }}
+              >
+                Save As…
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {onSaveAs && !(onSave && nsSheet) && (
         <button
-          onClick={onSaveLibrary}
+          onClick={onSaveAs}
           disabled={nsBusy}
           className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
-          title={nsSheet ? `Save to a Profile Sheet (current: ${nsSheet.name || nsSheet.id})` : 'Save this drawing to a Profile Sheet'}
+          title="Save this drawing to a Profile Sheet"
         >
-          <span>{nsBusy ? 'Saving…' : 'Save'}</span>
+          <span>{nsBusy ? 'Saving…' : 'Save As…'}</span>
         </button>
       )}
     </div>

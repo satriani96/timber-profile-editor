@@ -47,11 +47,25 @@ interface TimberPreviewPanelProps {
   onClose: () => void;
 }
 
-/** Write the preview's last frame to a PNG the user picks, named after the sheet. */
-async function saveRender(canvas: HTMLCanvasElement, name: string) {
-  const blob = await new Promise<Blob>((resolve, reject) =>
+function encodeRender(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('The preview could not be encoded.'))), 'image/png')
   );
+}
+
+/** Straight to the browser's downloads, named after the sheet. */
+async function downloadRender(canvas: HTMLCanvasElement, name: string) {
+  const url = URL.createObjectURL(await encodeRender(canvas));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${name}.png`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Write the preview's last frame to a PNG the user picks, named after the sheet. */
+async function saveRender(canvas: HTMLCanvasElement, name: string) {
+  const blob = await encodeRender(canvas);
   let handle: FileSystemFileHandle;
   try {
     handle = await window.showSaveFilePicker({
@@ -89,11 +103,15 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
     setMenu({ x: event.clientX - box.left, y: event.clientY - box.top });
   };
 
-  const saveImage = () => {
-    setMenu(null);
+  const previewCanvas = () => {
     const canvas = viewportRef.current?.querySelector('canvas');
     if (!canvas) throw new Error('The 3D preview has no canvas to save.');
-    void saveRender(canvas, sheetName ?? 'untitled');
+    return canvas;
+  };
+
+  const saveImage = () => {
+    setMenu(null);
+    void saveRender(previewCanvas(), sheetName ?? 'untitled');
   };
 
   const chooseFinish = (id: FinishId) => {
@@ -289,6 +307,21 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
             </Suspense>
           ) : (
             <p className="px-8 py-16 text-center text-gray-700">{result.message}</p>
+          )}
+          {result.ok && (
+            <button
+              type="button"
+              className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded border border-black/10 bg-white/90 px-2.5 py-1 text-gray-700 shadow-sm hover:bg-white"
+              title={`Download this render as ${sheetName ?? 'untitled'}.png`}
+              onClick={() => void downloadRender(previewCanvas(), sheetName ?? 'untitled')}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" />
+                <path d="M8 12l4 4 4-4" />
+                <path d="M12 4v12" />
+              </svg>
+              Download
+            </button>
           )}
           {menu && (
             <div
