@@ -131,6 +131,8 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
     } catch (error) {
       return { ok: false as const, message: describeProfileError(error) };
     }
+    // Reads the live Paper project, which React can't track; `revision` is the re-read trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional recompute key
   }, [revision]);
 
   useEffect(() => {
