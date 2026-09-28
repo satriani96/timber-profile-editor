@@ -136,6 +136,7 @@ function App() {
           onUploadImage={(file) => sketchCanvasRef.current?.handleUploadImage(file)}
           onUndo={() => sketchCanvasRef.current?.undo()}
           onRedo={() => sketchCanvasRef.current?.redo()}
+          onCheckJoins={() => sketchCanvasRef.current?.checkJoins()}
           nsSheet={nsSheet}
           onOpenLibrary={() => void openLibrary('open')}
           onSave={nsSheet ? () => void saveToSheet(nsSheet) : undefined}

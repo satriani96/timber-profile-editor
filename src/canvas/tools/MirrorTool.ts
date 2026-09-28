@@ -21,7 +21,6 @@ export interface MirrorToolState {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
   isMirroringRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
   history: SketchHistory;
   onHint: (message: string | null) => void;
@@ -36,7 +35,7 @@ function straightAxisAt(point: paper.Point): { from: paper.Point; to: paper.Poin
 }
 
 export function createMirrorTool(state: MirrorToolState) {
-  const { isPanningRef, isSpacebarPanRef, isMirroringRef, handleDragPan, getSnapConfig, history, onHint } = state;
+  const { isPanningRef, isSpacebarPanRef, isMirroringRef, getSnapConfig, history, onHint } = state;
 
   let phase: 'idle' | 'second' | 'ready' = 'idle';
   let axisPoint: paper.Point | null = null;
@@ -204,10 +203,6 @@ export function createMirrorTool(state: MirrorToolState) {
           updatePreview();
         }
       }
-    },
-
-    onMouseDrag(event: paper.ToolEvent) {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     cancel() {

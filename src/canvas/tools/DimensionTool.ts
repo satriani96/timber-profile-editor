@@ -10,7 +10,6 @@ export interface DimensionToolState {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
   isDimensioningRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
 }
 
@@ -42,7 +41,7 @@ function setCursor(cursor: string) {
 }
 
 export function createDimensionTool(state: DimensionToolState) {
-  const { isPanningRef, isSpacebarPanRef, isDimensioningRef, handleDragPan, getSnapConfig } = state;
+  const { isPanningRef, isSpacebarPanRef, isDimensioningRef, getSnapConfig } = state;
 
   let pending: Pending | null = null;
   let preview: paper.Group | null = null;
@@ -60,16 +59,12 @@ export function createDimensionTool(state: DimensionToolState) {
     hoverPath = null;
   }
 
-  function finish() {
+  // Also runs when other tools reset state (undo, tool switches), so it must not touch the cursor.
+  function cancel() {
     clearPreview();
     clearHover();
     pending = null;
     isDimensioningRef.current = false;
-    setCursor('crosshair');
-  }
-
-  function cancel() {
-    finish();
   }
 
   function highlightEntity(path: paper.Path) {
@@ -210,9 +205,6 @@ export function createDimensionTool(state: DimensionToolState) {
   return {
     onMouseDown,
     onMouseMove,
-    onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
-    },
     cancel,
     isBusy: () => pending !== null,
     onActivate: () => setCursor('crosshair'),

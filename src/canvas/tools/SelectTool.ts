@@ -9,7 +9,6 @@ interface StateManager {
   draggedSegmentRef: React.MutableRefObject<paper.Segment | null>;
   isPanningRef: React.MutableRefObject<boolean>;
   isSpacebarPanRef: React.MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   handleVertexDrag: (event: paper.ToolEvent) => void;
 }
 
@@ -33,7 +32,7 @@ interface MarqueeState {
  * window (L→R) or crossing (R→L) marquee.
  */
 export function createSelectTool(stateManager: StateManager) {
-  const { draggedSegmentRef, isPanningRef, isSpacebarPanRef, handleDragPan, handleVertexDrag } = stateManager;
+  const { draggedSegmentRef, isPanningRef, isSpacebarPanRef, handleVertexDrag } = stateManager;
 
   let selectedHandle: SelectedHandle | null = null;
   let movingPaths: paper.Path[] = [];
@@ -155,10 +154,7 @@ export function createSelectTool(stateManager: StateManager) {
     },
 
     onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanningRef.current || isSpacebarPanRef.current) {
-        handleDragPan(event);
-        return;
-      }
+      if (isPanningRef.current || isSpacebarPanRef.current) return;
       if (marquee) {
         updateMarquee(event.point);
         return;

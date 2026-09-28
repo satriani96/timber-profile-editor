@@ -5,6 +5,7 @@ import type { SketchHistory } from '../../canvas/history';
 import type { DrawingSession } from './useDrawingSession';
 import type { NumericInput } from './useNumericInput';
 import { isSketchPath } from '../../canvas/geometry/pathCuts';
+import { clearOpenEnds } from '../../canvas/geometry/openEnds';
 
 interface Args {
   activeTool: SketchTool;
@@ -165,7 +166,10 @@ export function useSketchKeyboard({
           if (session.isDrawingLineRef.current) cancelCurrentDrawing();
           else if (currentSplineRef.current) cancelSpline();
           else if (numeric.isActive) numeric.reset();
-          else setActiveTool('select');
+          else {
+            clearOpenEnds();
+            setActiveTool('select');
+          }
           return;
         case ' ':
           if (!isSpacebarPanRef.current) {

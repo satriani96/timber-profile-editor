@@ -9,6 +9,7 @@ interface ToolbarProps {
   onUploadImage: (file: File) => void;
   onUndo: () => void;
   onRedo: () => void;
+  onCheckJoins: () => void;
   nsSheet?: { id: string; name: string } | null;
   onOpenLibrary?: () => void;
   /** Save back to the loaded Profile Sheet. Absent when no sheet is loaded: then only Save As. */
@@ -95,6 +96,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onUploadImage,
   onUndo,
   onRedo,
+  onCheckJoins,
   nsSheet,
   onOpenLibrary,
   onSave,
@@ -222,6 +224,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <path d="M4 12h16" />
           <path d="M7 10l-3 2 3 2" />
           <path d="M17 10l3 2-3 2" />
+        </Icon>
+      </ToolButton>
+      <ToolButton label="Check joins — ring the loose ends of the selected paths in red" isActive={false} onClick={onCheckJoins}>
+        <Icon>
+          <path d="M3 17l6-6" />
+          <path d="M21 17l-6-6" />
+          <circle cx="12" cy="10" r="3" />
         </Icon>
       </ToolButton>
 

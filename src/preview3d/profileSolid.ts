@@ -1,10 +1,9 @@
 import paper from 'paper';
 import { DIMENSIONS_LAYER, itemLayerName } from '../canvas/layers';
+import { JOIN_TOLERANCE_MM } from '../canvas/geometry/openEnds';
 
 /** Length of the rendered offcut, framed whole like a photographed sample. */
 export const SAMPLE_LENGTH_MM = 300;
-/** Same as sketch touch distance — CAD fillets often miss by a few microns. */
-const JOIN_TOLERANCE_MM = 0.05;
 const SAMPLE_STEP_MM = 0.4;
 const MIN_AREA = 1e-4;
 

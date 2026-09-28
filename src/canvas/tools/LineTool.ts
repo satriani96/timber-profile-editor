@@ -23,7 +23,6 @@ export function createLineTool(stateManager: DrawingState) {
     getSnapPoint,
     isPanningRef,
     isSpacebarPanRef,
-    handleDragPan,
   } = stateManager;
 
   function beginAt(start: paper.Point) {
@@ -76,10 +75,6 @@ export function createLineTool(stateManager: DrawingState) {
         getSnapPoint(event.point);
       }
       if (snapIndicatorRef.current) snapIndicatorRef.current.bringToFront();
-    },
-
-    onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     /** Continue the chain from a point placed by numeric entry. */

@@ -2,9 +2,11 @@ import { useCallback, useState } from 'react';
 import paper from 'paper';
 import { BASE_STROKE_WIDTH } from './constants';
 import { rescaleDimension } from '../../canvas/dimensions';
+import { rescaleOpenEnds } from '../../canvas/geometry/openEnds';
 
 const MIN_ZOOM = 0.02;
-const MAX_ZOOM = 400;
+// 1 µm spans 10 px at the cap, so CAD near-misses can be inspected.
+const MAX_ZOOM = 10000;
 const FIT_PADDING_PX = 48;
 
 /** Zoom state plus the helpers that keep on-screen line weights constant while zooming. */
@@ -31,6 +33,7 @@ export function useViewport(paperReady: boolean) {
         item.strokeWidth = BASE_STROKE_WIDTH / z;
       }
     });
+    rescaleOpenEnds();
   }, [paperReady]);
 
   const applyZoom = useCallback(

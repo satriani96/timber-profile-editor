@@ -15,6 +15,8 @@ import { createSelectTool } from '../canvas/tools/SelectTool';
 import { collectPaperTools, useSketchClipboard } from './sketch/useSketchClipboard';
 import { createHistory, type SketchHistory } from '../canvas/history';
 import { resetLayers } from '../canvas/layers';
+import { isSketchPath } from '../canvas/geometry/pathCuts';
+import { clearOpenEnds, findOpenEnds, showOpenEnds } from '../canvas/geometry/openEnds';
 import { buildDxf, exportToDXF } from '../exporters/ExportDXF';
 import { prepareDxfImport } from '../importers/ImportDXF';
 import { prepareDwgImport } from '../importers/ImportDWG';
@@ -51,6 +53,7 @@ export type SketchCanvasHandle = {
   replaceFromDxf: (dxf: string) => number;
   undo: () => void;
   redo: () => void;
+  checkJoins: () => void;
 };
 
 const TOOL_CURSORS: Record<SketchTool, string> = {
@@ -184,6 +187,8 @@ function SketchCanvas(
   const path2Ref = useRef<paper.Path | null>(null);
   const isPanningRef = useRef(false);
   const isSpacebarPanRef = useRef(false);
+  /** Last cursor position (client px) of a pan in progress; null when not panning. */
+  const panFromRef = useRef<{ x: number; y: number } | null>(null);
 
   const numeric = useNumericInput({
     activeTool,
@@ -423,6 +428,21 @@ function SketchCanvas(
     }
   }, [nsDxf, paperReady, replaceFromDxf]);
 
+  const checkJoins = useCallback(() => {
+    const paths = paper.project.selectedItems.filter(isSketchPath);
+    if (!paths.length) {
+      clearOpenEnds();
+      setStatusMessage('Select the paths to check first');
+      return;
+    }
+    const ends = findOpenEnds(paths);
+    showOpenEnds(ends);
+    paper.view.update();
+    setStatusMessage(
+      ends.length ? `${ends.length} loose ${ends.length === 1 ? 'end' : 'ends'} — ringed in red` : 'All ends are joined'
+    );
+  }, []);
+
   React.useImperativeHandle(
     ref,
     () => ({
@@ -432,8 +452,9 @@ function SketchCanvas(
       replaceFromDxf,
       undo: () => runHistory('undo'),
       redo: () => runHistory('redo'),
+      checkJoins,
     }),
-    [handleImportDXF, handleUploadImage, replaceFromDxf, runHistory]
+    [checkJoins, handleImportDXF, handleUploadImage, replaceFromDxf, runHistory]
   );
 
   // --- Tool wiring (once Paper is ready; never call paper.setup here — it would wipe the project) ---
@@ -538,14 +559,27 @@ function SketchCanvas(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Panning runs on native events, not Paper's drag events. Paper drops a drag whenever the
+    // cursor's project point has not changed, and while the view follows the cursor that point
+    // barely moves, so a Paper-driven pan skips steps and judders. Screen pixels are exact.
     const onMouseDown = (e: MouseEvent) => {
+      const leftPan = e.button === 0 && (isSpacebarPanRef.current || lastActivatedToolRef.current === 'pan');
       if (e.button === 1 || e.button === 2) {
         isPanningRef.current = true;
         e.preventDefault();
       }
+      if (isPanningRef.current || leftPan) panFromRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      const from = panFromRef.current;
+      if (!from) return;
+      const view = paper.project.view;
+      view.translate(new paper.Point(e.clientX - from.x, e.clientY - from.y).divide(view.zoom));
+      panFromRef.current = { x: e.clientX, y: e.clientY };
     };
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 1 || e.button === 2) isPanningRef.current = false;
+      panFromRef.current = null;
     };
     const onContextMenu = (e: Event) => e.preventDefault();
     const onDblClick = (e: MouseEvent) => {
@@ -562,12 +596,14 @@ function SketchCanvas(
 
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('dblclick', onDblClick);
     return () => {
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('dblclick', onDblClick);

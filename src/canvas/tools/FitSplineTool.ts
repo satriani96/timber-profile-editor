@@ -12,7 +12,6 @@ export interface FitSplineStateManager {
   finishCurrentSpline: () => void;
   isPanningRef: React.MutableRefObject<boolean>;
   isSpacebarPanRef: React.MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   setIsSplineDrawing?: (val: boolean) => void; // Optional setter for React state
   /** Object snap shared with the other drawing tools; also drives the snap marker. */
   getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
@@ -33,7 +32,6 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
     finishCurrentSpline,
     isPanningRef,
     isSpacebarPanRef,
-    handleDragPan,
     getSnapPoint,
     snapIndicatorRef,
   } = stateManager;
@@ -143,10 +141,7 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
   }
 
   function onMouseDrag(event: paper.ToolEvent) {
-    if (isPanningRef.current || isSpacebarPanRef.current) {
-      handleDragPan(event);
-      return;
-    }
+    if (isPanningRef.current || isSpacebarPanRef.current) return;
     // --- Drag handle if selected ---
     if (selectedHandle) {
       const { path, segmentIndex, handleType } = selectedHandle;
@@ -227,7 +222,6 @@ export function createFitSplineTool(stateManager: FitSplineStateManager) {
 
   // Patch finish/cancel to remove preview
   // Only keep the patched finishSpline/cancelSpline implementations (above). Remove any duplicates below if present.
-
 
   function onMouseUp() {
     // Deselect handle after drag

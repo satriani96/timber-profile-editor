@@ -13,7 +13,6 @@ import {
 interface StateManager {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
 }
 
 type CutMode = 'trim' | 'split';
@@ -39,7 +38,7 @@ interface CutTarget {
  * cursor becomes its own path. Nothing is removed.
  */
 function createCutTool(mode: CutMode, stateManager: StateManager) {
-  const { isPanningRef, isSpacebarPanRef, handleDragPan } = stateManager;
+  const { isPanningRef, isSpacebarPanRef } = stateManager;
 
   let highlight: paper.Path | null = null;
   let markers: paper.Path[] = [];
@@ -154,9 +153,6 @@ function createCutTool(mode: CutMode, stateManager: StateManager) {
   return {
     onMouseMove,
     onMouseDown,
-    onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
-    },
     onActivate: () => {},
     onDeactivate: clearHighlight,
     onKeyDown: null,

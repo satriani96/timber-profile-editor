@@ -94,6 +94,8 @@ export function findSnap(point: paper.Point, config: SnapConfig, pathToIgnore: p
 
     if (enableMidpointSnap && !circle) {
       for (const curve of path.curves) {
+        // A midpoint within snap range of its own ends can't be told apart from them on screen.
+        if (curve.length / 2 < tolerance) continue;
         consider(curve.getPointAt(curve.length / 2), 'midpoint');
       }
     }

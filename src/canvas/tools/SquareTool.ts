@@ -13,7 +13,6 @@ export function createSquareTool(stateManager: DrawingState) {
     getSnapPoint,
     isPanningRef,
     isSpacebarPanRef,
-    handleDragPan,
   } = stateManager;
 
   function setCorner(path: paper.Path, start: paper.Point, end: paper.Point) {
@@ -65,10 +64,6 @@ export function createSquareTool(stateManager: DrawingState) {
       } else {
         getSnapPoint(event.point);
       }
-    },
-
-    onMouseDrag: (event: paper.ToolEvent) => {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     onMouseUp: () => {},

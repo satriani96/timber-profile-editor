@@ -13,7 +13,6 @@ export interface DrawingState {
   getSnapPoint: (point: paper.Point, pathToIgnore?: paper.Path | null) => paper.Point | null;
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
 }
 
 /** Paper forwards every mouse button to tools; drawing must only react to the primary one. */

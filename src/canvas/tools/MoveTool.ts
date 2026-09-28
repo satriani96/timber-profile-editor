@@ -17,13 +17,12 @@ export interface MoveToolState {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
   isTransformingRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
   onHint: (message: string | null) => void;
 }
 
 export function createMoveTool(state: MoveToolState) {
-  const { isPanningRef, isSpacebarPanRef, isTransformingRef, handleDragPan, getSnapConfig, onHint } = state;
+  const { isPanningRef, isSpacebarPanRef, isTransformingRef, getSnapConfig, onHint } = state;
 
   let phase: 'idle' | 'moving' = 'idle';
   let base: paper.Point | null = null;
@@ -115,10 +114,6 @@ export function createMoveTool(state: MoveToolState) {
       const snap = findSnap(event.point, getSnapConfig());
       if (phase !== 'moving' || !base) return;
       updatePreview(destPoint(snap?.point ?? event.point, isShiftHeld(event)));
-    },
-
-    onMouseDrag(event: paper.ToolEvent) {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     applyNumeric(length: number, angleCad: number | undefined) {

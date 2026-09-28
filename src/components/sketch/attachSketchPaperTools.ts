@@ -118,10 +118,6 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
       handler(event);
     };
 
-  const handleDragPan = (event: paper.ToolEvent) => {
-    paper.project.view.translate(new paper.Point(event.delta.x, event.delta.y));
-  };
-
   const handleVertexDrag = (event: paper.ToolEvent) => {
     const draggedSegment = ctx.draggedSegmentRef.current;
     if (!draggedSegment) return;
@@ -163,7 +159,6 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
     getSnapPoint: (point, pathToIgnore) => getSnapPoint(point, snapConfig, pathToIgnore),
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
-    handleDragPan,
   };
 
   const fitSplineTool = createFitSplineTool({
@@ -173,7 +168,6 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
     finishCurrentSpline: ctx.finishCurrentSpline,
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
-    handleDragPan,
     setIsSplineDrawing: ctx.setIsSplineDrawing,
     setSplineSegmentCount: ctx.setSplineSegmentCount,
     getSnapPoint: drawingState.getSnapPoint,
@@ -210,13 +204,11 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const linePaperTool = ensureTool(ctx.lineToolRef);
   linePaperTool.onMouseDown = withCheckpoint(lineTool.onMouseDown);
   linePaperTool.onMouseMove = lineTool.onMouseMove;
-  linePaperTool.onMouseDrag = lineTool.onMouseDrag;
 
   const selectTool = createSelectTool({
     draggedSegmentRef: ctx.draggedSegmentRef,
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
-    handleDragPan,
     handleVertexDrag,
   });
   ctx.selectToolInstanceRef.current = selectTool;
@@ -233,21 +225,19 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const squarePaperTool = ensureTool(ctx.squareToolRef);
   squarePaperTool.onMouseDown = withCheckpoint(squareTool.onMouseDown);
   squarePaperTool.onMouseMove = squareTool.onMouseMove;
-  squarePaperTool.onMouseDrag = squareTool.onMouseDrag;
 
   const circleTool = createCircleTool(drawingState);
   const circlePaperTool = ensureTool(ctx.circleToolRef);
   circlePaperTool.onMouseDown = withCheckpoint(circleTool.onMouseDown);
   circlePaperTool.onMouseMove = circleTool.onMouseMove;
-  circlePaperTool.onMouseDrag = circleTool.onMouseDrag;
 
-  const panPaperTool = ensureTool(ctx.panToolRef);
-  panPaperTool.onMouseDrag = handleDragPan;
+  // Panning is handled on the canvas's native mouse events (see SketchCanvas); the Pan tool only
+  // needs to exist so activating it stops the drawing tools from reacting.
+  ensureTool(ctx.panToolRef);
 
   const cutState = {
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
-    handleDragPan,
   };
 
   const trimTool = createTrimTool(cutState);
@@ -255,33 +245,28 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const trimPaperTool = ensureTool(ctx.trimToolRef);
   trimPaperTool.onMouseMove = trimTool.onMouseMove;
   trimPaperTool.onMouseDown = withCheckpoint(trimTool.onMouseDown);
-  trimPaperTool.onMouseDrag = trimTool.onMouseDrag;
 
   const splitTool = createSplitTool(cutState);
   ctx.splitToolInstanceRef.current = splitTool;
   const splitPaperTool = ensureTool(ctx.splitToolRef);
   splitPaperTool.onMouseMove = splitTool.onMouseMove;
   splitPaperTool.onMouseDown = withCheckpoint(splitTool.onMouseDown);
-  splitPaperTool.onMouseDrag = splitTool.onMouseDrag;
 
   const dimensionTool = createDimensionTool({
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
     isDimensioningRef: ctx.isDimensioningRef,
-    handleDragPan,
     getSnapConfig: () => snapConfig,
   });
   ctx.dimensionToolInstanceRef.current = dimensionTool;
   const dimensionPaperTool = ensureTool(ctx.dimensionToolRef);
   dimensionPaperTool.onMouseDown = withCheckpoint(dimensionTool.onMouseDown);
   dimensionPaperTool.onMouseMove = dimensionTool.onMouseMove;
-  dimensionPaperTool.onMouseDrag = dimensionTool.onMouseDrag;
 
   const transformState = {
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
     isTransformingRef: ctx.isTransformingRef,
-    handleDragPan,
     getSnapConfig: () => snapConfig,
     onHint: ctx.onHint,
   };
@@ -291,20 +276,17 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const movePaperTool = ensureTool(ctx.moveToolRef);
   movePaperTool.onMouseDown = withCheckpoint(moveTool.onMouseDown);
   movePaperTool.onMouseMove = moveTool.onMouseMove;
-  movePaperTool.onMouseDrag = moveTool.onMouseDrag;
 
   const rotateTool = createRotateTool(transformState);
   ctx.rotateToolInstanceRef.current = rotateTool;
   const rotatePaperTool = ensureTool(ctx.rotateToolRef);
   rotatePaperTool.onMouseDown = withCheckpoint(rotateTool.onMouseDown);
   rotatePaperTool.onMouseMove = rotateTool.onMouseMove;
-  rotatePaperTool.onMouseDrag = rotateTool.onMouseDrag;
 
   const pasteTool = createPasteTool({
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
     isPastingRef: ctx.isPastingRef,
-    handleDragPan,
     getSnapConfig: () => snapConfig,
     history: ctx.history,
     onHint: ctx.onHint,
@@ -314,13 +296,11 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const pastePaperTool = ensureTool(ctx.pasteToolRef);
   pastePaperTool.onMouseDown = pasteTool.onMouseDown;
   pastePaperTool.onMouseMove = pasteTool.onMouseMove;
-  pastePaperTool.onMouseDrag = pasteTool.onMouseDrag;
 
   const mirrorTool = createMirrorTool({
     isPanningRef: ctx.isPanningRef,
     isSpacebarPanRef: ctx.isSpacebarPanRef,
     isMirroringRef: ctx.isMirroringRef,
-    handleDragPan,
     getSnapConfig: () => snapConfig,
     history: ctx.history,
     onHint: ctx.onHint,
@@ -329,5 +309,4 @@ export function attachSketchPaperTools(ctx: SketchPaperToolsContext): void {
   const mirrorPaperTool = ensureTool(ctx.mirrorToolRef);
   mirrorPaperTool.onMouseDown = withCheckpoint(mirrorTool.onMouseDown);
   mirrorPaperTool.onMouseMove = mirrorTool.onMouseMove;
-  mirrorPaperTool.onMouseDrag = mirrorTool.onMouseDrag;
 }

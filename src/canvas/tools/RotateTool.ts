@@ -18,7 +18,6 @@ export interface RotateToolState {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
   isTransformingRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
   onHint: (message: string | null) => void;
 }
@@ -28,7 +27,7 @@ function paperHeading(from: paper.Point, to: paper.Point): number {
 }
 
 export function createRotateTool(state: RotateToolState) {
-  const { isPanningRef, isSpacebarPanRef, isTransformingRef, handleDragPan, getSnapConfig, onHint } = state;
+  const { isPanningRef, isSpacebarPanRef, isTransformingRef, getSnapConfig, onHint } = state;
 
   let phase: 'idle' | 'ref' | 'rotating' = 'idle';
   let center: paper.Point | null = null;
@@ -135,10 +134,6 @@ export function createRotateTool(state: RotateToolState) {
       if (phase !== 'rotating' || !center || !refPoint) return;
       lastCursor = (snap?.point ?? event.point).clone();
       updatePreview(paperDeltaFromMouse(lastCursor, isShiftHeld(event)));
-    },
-
-    onMouseDrag(event: paper.ToolEvent) {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     applyNumeric(cadAngleDeg: number) {

@@ -10,7 +10,6 @@ export interface PasteToolState {
   isPanningRef: MutableRefObject<boolean>;
   isSpacebarPanRef: MutableRefObject<boolean>;
   isPastingRef: MutableRefObject<boolean>;
-  handleDragPan: (event: paper.ToolEvent) => void;
   getSnapConfig: () => SnapConfig;
   history: SketchHistory;
   onHint: (message: string | null) => void;
@@ -18,7 +17,7 @@ export interface PasteToolState {
 }
 
 export function createPasteTool(state: PasteToolState) {
-  const { isPanningRef, isSpacebarPanRef, isPastingRef, handleDragPan, getSnapConfig, history, onHint, onDone } = state;
+  const { isPanningRef, isSpacebarPanRef, isPastingRef, getSnapConfig, history, onHint, onDone } = state;
 
   let ghosts: paper.Item[] = [];
   let anchor: paper.Point | null = null;
@@ -83,10 +82,6 @@ export function createPasteTool(state: PasteToolState) {
       if (!ghosts.length) return;
       const snap = findSnap(event.point, getSnapConfig());
       moveGhostsTo(snap?.point ?? event.point);
-    },
-
-    onMouseDrag(event: paper.ToolEvent) {
-      if (isPanningRef.current || isSpacebarPanRef.current) handleDragPan(event);
     },
 
     cancel() {

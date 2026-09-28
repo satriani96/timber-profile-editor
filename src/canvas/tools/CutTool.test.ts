@@ -6,7 +6,6 @@ import { findSnap } from '../../utils/snapHelpers';
 const state = () => ({
   isPanningRef: { current: false },
   isSpacebarPanRef: { current: false },
-  handleDragPan: () => {},
 });
 
 const event = (x: number, y: number) => ({ point: new paper.Point(x, y) }) as unknown as paper.ToolEvent;
