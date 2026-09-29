@@ -106,7 +106,8 @@ function dimSizes() {
     stroke: Math.max(0.6, BASE_STROKE_WIDTH * 0.7) / z,
     font: 12 / z,
     arrow: 8 / z,
-    gap: 2 / z,
+    // Space between the measured point and its extension line, so the dimension reads as separate from the profile.
+    gap: 6 / z,
     overshoot: 3.5 / z,
   };
 }
