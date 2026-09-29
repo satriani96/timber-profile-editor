@@ -137,12 +137,6 @@ function tick(center: paper.Point, dir: paper.Point, size: number, color: paper.
   return new paper.Path.Line({ from: a, to: b, ...lineStyle(color, stroke), insert: false });
 }
 
-function readableAngle(degrees: number): number {
-  let a = ((degrees % 360) + 360) % 360;
-  if (a > 90 && a <= 270) a += 180;
-  return a;
-}
-
 function addEnds(from: paper.Point, to: paper.Point, size: number, color: paper.Color, stroke: number): paper.Item[] {
   const dir = to.subtract(from);
   if (dir.length < size * 2.4) {
@@ -189,9 +183,9 @@ function buildLinearParts(data: DimensionData): paper.Item[] {
   const e2 = extension(p2, a2, gap, overshoot, color, stroke);
   if (e1) items.push(e1);
   if (e2) items.push(e2);
-  items.push(new paper.Path.Line({ from: a1, to: a2, ...lineStyle(color, stroke), insert: false }));
   items.push(...addEnds(a1, a2, arrow, color, stroke));
 
+  // The label always reads horizontally, centred on the dimension line, which breaks around it.
   const mid = a1.add(a2).divide(2);
   const label = new paper.PointText({
     point: mid,
@@ -202,10 +196,39 @@ function buildLinearParts(data: DimensionData): paper.Item[] {
     justification: 'center',
     insert: false,
   });
-  label.rotate(readableAngle(a2.subtract(a1).angle), mid);
-  label.translate(new paper.Point(0, -font * 0.35));
+  label.position = mid;
+  for (const [from, to] of segmentsOutside(a1, a2, label.bounds.expand(font * 0.5))) {
+    items.push(new paper.Path.Line({ from, to, ...lineStyle(color, stroke), insert: false }));
+  }
   items.push(label);
   return items;
+}
+
+/** The parts of the segment from `a` to `b` that lie outside `rect` (Liang–Barsky clip). */
+export function segmentsOutside(a: paper.Point, b: paper.Point, rect: paper.Rectangle): [paper.Point, paper.Point][] {
+  const d = b.subtract(a);
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-d.x, a.x - rect.left],
+    [d.x, rect.right - a.x],
+    [-d.y, a.y - rect.top],
+    [d.y, rect.bottom - a.y],
+  ];
+  for (const [p, q] of edges) {
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return [[a, b]];
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 > t1) return [[a, b]];
+  }
+  const pieces: [paper.Point, paper.Point][] = [];
+  if (t0 > 0) pieces.push([a, a.add(d.multiply(t0))]);
+  if (t1 < 1) pieces.push([a.add(d.multiply(t1)), b]);
+  return pieces;
 }
 
 function buildRadialParts(data: DimensionData): paper.Item[] {

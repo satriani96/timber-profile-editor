@@ -9,6 +9,7 @@ import {
   formatDimensionValue,
   measureDimension,
   offsetDimension,
+  segmentsOutside,
 } from './dimensions';
 
 describe('dimension formatting', () => {
@@ -104,5 +105,35 @@ describe('dimension paper integration', () => {
     expect(doc.entities.filter((e) => e.type === 'DIMENSION')).toHaveLength(1);
     expect(doc.unsupported).not.toHaveProperty('DIMENSION');
     expect(doc.layers.map((l) => l.name)).toContain('Dimensions');
+  });
+});
+
+describe('dimension line gap', () => {
+  beforeEach(() => paper.setup(new paper.Size(800, 600)));
+
+  const P = (x: number, y: number) => new paper.Point(x, y);
+  const label = new paper.Rectangle(P(40, -5), P(60, 5));
+
+  it('breaks a line that runs through the label into the two parts either side', () => {
+    const pieces = segmentsOutside(P(0, 0), P(100, 0), label);
+    expect(pieces.map(([a, b]) => [a.x, b.x])).toEqual([
+      [0, 40],
+      [60, 100],
+    ]);
+  });
+
+  it('breaks a vertical line across a horizontal label at its top and bottom', () => {
+    const pieces = segmentsOutside(P(50, -50), P(50, 50), label);
+    expect(pieces).toHaveLength(2);
+    expect(pieces[0][1].y).toBeCloseTo(-5, 9);
+    expect(pieces[1][0].y).toBeCloseTo(5, 9);
+  });
+
+  it('leaves a line that misses the label whole', () => {
+    expect(segmentsOutside(P(0, 20), P(100, 20), label)).toHaveLength(1);
+  });
+
+  it('drops a line that lies entirely inside the label', () => {
+    expect(segmentsOutside(P(45, 0), P(55, 0), label)).toHaveLength(0);
   });
 });

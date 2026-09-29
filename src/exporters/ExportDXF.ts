@@ -53,7 +53,8 @@ export function buildDxf(project: paper.Project = paper.project): string {
 
 /**
  * Writes the DXF points directly: 13/14 are the measured points, 10 lies on the dimension line
- * (through the second extension line), 11 is the text position and 71 how the label attaches to it. For a radius 10 is the centre
+ * (through the second extension line), 11 is the text position, 71 how the label attaches to it
+ * and 53 its angle. For a radius 10 is the centre
  * and 15 the rim point the arrow touches; for a diameter 15 is that rim point and 10 the point
  * opposite. The writer's own `offset` option measures from the first point and gets the side
  * wrong for vertical and aligned dimensions, so it is not used.
@@ -83,12 +84,13 @@ function exportDimension(group: paper.Group, dxf: DxfWriter) {
   const ends = dimensionLineEnds(data);
   if (!ends) return;
   const [a1, a2] = ends;
-  // The label sits on the dimension line's midpoint, above it, as the sketch draws it.
+  // The label is centred on the dimension line's midpoint and reads horizontally, as the sketch draws it.
   const linear = {
     ...opts,
     definitionPoint: dxfPoint(a2),
     middlePoint: dxfPoint(a1.add(a2).divide(2)),
-    attachmentPoint: AttachmentPoint.BottomCenter,
+    attachmentPoint: AttachmentPoint.MiddleCenter,
+    rotation: 0,
   };
   const first = dxfPoint(data.p1);
   const second = dxfPoint(data.p2);
