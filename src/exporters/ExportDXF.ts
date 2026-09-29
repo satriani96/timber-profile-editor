@@ -1,4 +1,13 @@
-import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d, type CommonEntityOptions } from '@tarikjabiri/dxf';
+import {
+  AttachmentPoint,
+  DxfWriter,
+  LWPolylineFlags,
+  SplineFlags,
+  Units,
+  point2d,
+  point3d,
+  type CommonEntityOptions,
+} from '@tarikjabiri/dxf';
 import paper from 'paper';
 import { dimensionLabel, dimensionLineEnds, readDimensionData } from '../canvas/dimensions';
 import { arcAngles } from '../canvas/geometry/pathCuts';
@@ -44,7 +53,7 @@ export function buildDxf(project: paper.Project = paper.project): string {
 
 /**
  * Writes the DXF points directly: 13/14 are the measured points, 10 lies on the dimension line
- * (through the second extension line), 11 is the text position. For a radius 10 is the centre
+ * (through the second extension line), 11 is the text position and 71 how the label attaches to it. For a radius 10 is the centre
  * and 15 the rim point the arrow touches; for a diameter 15 is that rim point and 10 the point
  * opposite. The writer's own `offset` option measures from the first point and gets the side
  * wrong for vertical and aligned dimensions, so it is not used.
@@ -59,7 +68,12 @@ function exportDimension(group: paper.Group, dxf: DxfWriter) {
 
   if (data.kind === 'radius' || data.kind === 'diameter') {
     const { p1: center, p2: onCurve, textPoint } = data;
-    const radial = { ...opts, middlePoint: dxfPoint(textPoint), leaderLength: textPoint.getDistance(onCurve) };
+    const radial = {
+      ...opts,
+      middlePoint: dxfPoint(textPoint),
+      attachmentPoint: AttachmentPoint.MiddleLeft,
+      leaderLength: textPoint.getDistance(onCurve),
+    };
     // The writer puts its first argument in group 15 and its second in group 10.
     if (data.kind === 'radius') dxf.addRadialDim(dxfPoint(onCurve), dxfPoint(center), radial);
     else dxf.addDiameterDim(dxfPoint(onCurve), dxfPoint(center.multiply(2).subtract(onCurve)), radial);
@@ -69,7 +83,13 @@ function exportDimension(group: paper.Group, dxf: DxfWriter) {
   const ends = dimensionLineEnds(data);
   if (!ends) return;
   const [a1, a2] = ends;
-  const linear = { ...opts, definitionPoint: dxfPoint(a2), middlePoint: dxfPoint(a1.add(a2).divide(2)) };
+  // The label sits on the dimension line's midpoint, above it, as the sketch draws it.
+  const linear = {
+    ...opts,
+    definitionPoint: dxfPoint(a2),
+    middlePoint: dxfPoint(a1.add(a2).divide(2)),
+    attachmentPoint: AttachmentPoint.BottomCenter,
+  };
   const first = dxfPoint(data.p1);
   const second = dxfPoint(data.p2);
   if (data.kind === 'horizontal') dxf.addLinearDim(first, second, { ...linear, angle: 0 });
