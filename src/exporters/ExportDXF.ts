@@ -1,6 +1,6 @@
 import { DxfWriter, LWPolylineFlags, SplineFlags, Units, point2d, point3d, type CommonEntityOptions } from '@tarikjabiri/dxf';
 import paper from 'paper';
-import { dimensionLabel, dimensionOffset, readDimensionData } from '../canvas/dimensions';
+import { dimensionLabel, dimensionLineEnds, readDimensionData } from '../canvas/dimensions';
 import { arcAngles } from '../canvas/geometry/pathCuts';
 import { DIMENSIONS_LAYER, getLayerState, itemLayerName } from '../canvas/layers';
 import { pathToBezierSpline } from '../importers/splineConversion';
@@ -42,6 +42,13 @@ export function buildDxf(project: paper.Project = paper.project): string {
   return dxf.stringify();
 }
 
+/**
+ * Writes the DXF points directly: 13/14 are the measured points, 10 lies on the dimension line
+ * (through the second extension line), 11 is the text position. For a radius 10 is the centre
+ * and 15 the rim point the arrow touches; for a diameter 15 is that rim point and 10 the point
+ * opposite. The writer's own `offset` option measures from the first point and gets the side
+ * wrong for vertical and aligned dimensions, so it is not used.
+ */
 function exportDimension(group: paper.Group, dxf: DxfWriter) {
   const data = readDimensionData(group);
   const opts = {
@@ -49,26 +56,25 @@ function exportDimension(group: paper.Group, dxf: DxfWriter) {
     text: dimensionLabel(data.kind, data.value),
     ActualMeasurement: data.value,
   };
+
+  if (data.kind === 'radius' || data.kind === 'diameter') {
+    const { p1: center, p2: onCurve, textPoint } = data;
+    const radial = { ...opts, middlePoint: dxfPoint(textPoint), leaderLength: textPoint.getDistance(onCurve) };
+    // The writer puts its first argument in group 15 and its second in group 10.
+    if (data.kind === 'radius') dxf.addRadialDim(dxfPoint(onCurve), dxfPoint(center), radial);
+    else dxf.addDiameterDim(dxfPoint(onCurve), dxfPoint(center.multiply(2).subtract(onCurve)), radial);
+    return;
+  }
+
+  const ends = dimensionLineEnds(data);
+  if (!ends) return;
+  const [a1, a2] = ends;
+  const linear = { ...opts, definitionPoint: dxfPoint(a2), middlePoint: dxfPoint(a1.add(a2).divide(2)) };
   const first = dxfPoint(data.p1);
   const second = dxfPoint(data.p2);
-  const offset = -dimensionOffset(data.p1, data.p2, data.textPoint, data.kind);
-  const leaderLength = data.textPoint.getDistance(data.p2);
-  switch (data.kind) {
-    case 'horizontal':
-      dxf.addLinearDim(first, second, { ...opts, angle: 0, offset });
-      break;
-    case 'vertical':
-      dxf.addLinearDim(first, second, { ...opts, angle: 90, offset });
-      break;
-    case 'diameter':
-      dxf.addDiameterDim(first, second, { ...opts, leaderLength });
-      break;
-    case 'radius':
-      dxf.addRadialDim(first, second, { ...opts, leaderLength });
-      break;
-    default:
-      dxf.addAlignedDim(first, second, { ...opts, offset });
-  }
+  if (data.kind === 'horizontal') dxf.addLinearDim(first, second, { ...linear, angle: 0 });
+  else if (data.kind === 'vertical') dxf.addLinearDim(first, second, { ...linear, angle: 90 });
+  else dxf.addAlignedDim(first, second, linear);
 }
 
 function registerLayers(dxf: DxfWriter, project: paper.Project) {

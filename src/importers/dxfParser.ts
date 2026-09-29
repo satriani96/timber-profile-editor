@@ -28,7 +28,26 @@ export type DxfEntity = WithMeta<
     }
   | { type: 'ELLIPSE'; center: DxfPoint; majorAxis: DxfPoint; ratio: number; startParam: number; endParam: number }
   | { type: 'INSERT'; name: string; position: DxfPoint; scale: DxfPoint; rotation: number }
+  | DxfDimension
 >;
+
+/**
+ * DIMENSION entities the sketch can rebuild. Points are WCS except `textMid`, which DXF puts in
+ * the entity's OCS. `definition` (10) sits on the dimension line for linear kinds, is the centre
+ * for a radius, and is the far rim point for a diameter; `arcPoint` (15) is the rim point the
+ * arrow touches.
+ */
+export type DxfDimension =
+  | { type: 'DIMENSION'; kind: 'rotated'; definition: DxfPoint; textMid: DxfPoint; first: DxfPoint; second: DxfPoint; angle: number }
+  | { type: 'DIMENSION'; kind: 'aligned'; definition: DxfPoint; textMid: DxfPoint; first: DxfPoint; second: DxfPoint }
+  | { type: 'DIMENSION'; kind: 'radius' | 'diameter'; definition: DxfPoint; textMid: DxfPoint; arcPoint: DxfPoint };
+
+/** DIMENSION group 70 low bits; the high bits are display flags. */
+const DIMENSION_TYPE_NAMES: Record<number, string> = {
+  2: 'angular',
+  5: 'angular 3-point',
+  6: 'ordinate',
+};
 
 export interface DxfLayerInfo {
   name: string;
@@ -153,6 +172,36 @@ function parseLwPolyline(record: Pair[]): DxfEntity {
   }
   for (const vertex of vertices) vertex.z = elevation;
   return { type: 'POLYLINE', vertices, closed, ocs: true, ...meta(record) };
+}
+
+function parseDimension(record: Pair[], unsupported: Record<string, number>): DxfEntity | null {
+  const dimType = num(firstValue(record, 70, '0')) & 7;
+  const note = (reason: string) => {
+    const key = `DIMENSION (${reason})`;
+    unsupported[key] = (unsupported[key] ?? 0) + 1;
+    return null;
+  };
+  if (DIMENSION_TYPE_NAMES[dimType]) return note(DIMENSION_TYPE_NAMES[dimType]);
+  if (!hasCode(record, 11)) return note('no text position');
+  const common = { type: 'DIMENSION' as const, definition: pointAt(record, 10), textMid: pointAt(record, 11), ...meta(record) };
+  switch (dimType) {
+    case 0:
+      return {
+        ...common,
+        kind: 'rotated',
+        first: pointAt(record, 13),
+        second: pointAt(record, 14),
+        angle: num(firstValue(record, 50, '0')),
+      };
+    case 1:
+      return { ...common, kind: 'aligned', first: pointAt(record, 13), second: pointAt(record, 14) };
+    case 3:
+      return { ...common, kind: 'diameter', arcPoint: pointAt(record, 15) };
+    case 4:
+      return { ...common, kind: 'radius', arcPoint: pointAt(record, 15) };
+    default:
+      return note(`type ${dimType}`);
+  }
 }
 
 function parseSpline(record: Pair[]): DxfEntity {
@@ -285,6 +334,11 @@ function parseEntities(records: Pair[][], unsupported: Record<string, number>): 
           ...extras,
         });
         break;
+      case 'DIMENSION': {
+        const dimension = parseDimension(record, unsupported);
+        if (dimension) entities.push(dimension);
+        break;
+      }
       case 'VERTEX':
       case 'SEQEND':
       case 'ENDBLK':

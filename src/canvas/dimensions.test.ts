@@ -101,7 +101,8 @@ describe('dimension paper integration', () => {
     expect(text).toContain('DIMENSION');
     expect(text).toMatch(/8\nDimensions/);
     const doc = parseDxf(text);
-    expect(doc.unsupported.DIMENSION).toBeGreaterThan(0);
+    expect(doc.entities.filter((e) => e.type === 'DIMENSION')).toHaveLength(1);
+    expect(doc.unsupported).not.toHaveProperty('DIMENSION');
     expect(doc.layers.map((l) => l.name)).toContain('Dimensions');
   });
 });

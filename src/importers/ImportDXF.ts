@@ -1,7 +1,16 @@
 import paper from 'paper';
 import { PROFILE_LAYER } from '../canvas/layers';
+import { createDimension, measureDimension, type DimensionKind } from '../canvas/dimensions';
 import { aciToHex } from '../exporters/aci';
-import { millimetresPerUnit, parseDxf, type DxfDocument, type DxfEntity, type DxfPoint, type DxfVertex } from './dxfParser';
+import {
+  millimetresPerUnit,
+  parseDxf,
+  type DxfDimension,
+  type DxfDocument,
+  type DxfEntity,
+  type DxfPoint,
+  type DxfVertex,
+} from './dxfParser';
 import { flattenDxfDocument, type ViewPlane } from './viewPlane';
 import { bsplineToSegments, clampedUniformKnots, knotsAreValid, sampleBSpline } from './splineConversion';
 import {
@@ -92,7 +101,7 @@ function buildEntities(
   entities: DxfEntity[],
   matrix: paper.Matrix,
   doc: DxfDocument,
-  items: paper.Path[],
+  items: paper.Item[],
   skipped: Record<string, number>,
   depth: number
 ) {
@@ -182,8 +191,65 @@ function buildEntities(
         buildEntities(block.entities, blockMatrix, doc, items, skipped, depth + 1);
         break;
       }
+      case 'DIMENSION':
+        buildDimension(entity, matrix, items, skipped);
+        break;
     }
   }
+}
+
+const PARALLEL_TOLERANCE = 1e-9;
+
+/**
+ * Rebuilds a DIMENSION as a sketch dimension. The measured value is recomputed from the
+ * transformed points, so it follows the unit the user picked rather than the file's text.
+ */
+function buildDimension(entity: DxfDimension, matrix: paper.Matrix, items: paper.Item[], skipped: Record<string, number>) {
+  const at = (p: DxfPoint) => matrix.transform(toPoint(p));
+  const definition = at(entity.definition);
+  let data: { kind: DimensionKind; p1: paper.Point; p2: paper.Point; textPoint: paper.Point };
+
+  switch (entity.kind) {
+    case 'radius':
+      data = { kind: 'radius', p1: definition, p2: at(entity.arcPoint), textPoint: at(entity.textMid) };
+      break;
+    case 'diameter': {
+      // Both points are on the rim: 15 where the arrow touches, 10 diametrically opposite.
+      const near = at(entity.arcPoint);
+      data = { kind: 'diameter', p1: near.add(definition).divide(2), p2: near, textPoint: at(entity.textMid) };
+      break;
+    }
+    case 'aligned':
+      data = { kind: 'aligned', p1: at(entity.first), p2: at(entity.second), textPoint: definition };
+      break;
+    case 'rotated': {
+      const p1 = at(entity.first);
+      const p2 = at(entity.second);
+      const rad = (entity.angle * Math.PI) / 180;
+      const dir = at({ x: entity.definition.x + Math.cos(rad), y: entity.definition.y + Math.sin(rad), z: 0 })
+        .subtract(definition)
+        .normalize();
+      const mid = p1.add(p2).divide(2);
+      if (Math.abs(dir.y) < PARALLEL_TOLERANCE) {
+        data = { kind: 'horizontal', p1, p2, textPoint: new paper.Point(mid.x, definition.y) };
+      } else if (Math.abs(dir.x) < PARALLEL_TOLERANCE) {
+        data = { kind: 'vertical', p1, p2, textPoint: new paper.Point(definition.x, mid.y) };
+      } else if (Math.abs(dir.cross(p2.subtract(p1).normalize())) < PARALLEL_TOLERANCE) {
+        data = { kind: 'aligned', p1, p2, textPoint: definition };
+      } else {
+        // A linear dimension measured along some other direction; the sketch has no such kind.
+        skip(skipped, 'DIMENSION (rotated linear)');
+        return;
+      }
+      break;
+    }
+  }
+
+  if (data.p1.getDistance(data.p2) < 1e-9) {
+    skip(skipped, 'DIMENSION (zero length)');
+    return;
+  }
+  items.push(createDimension({ ...data, value: measureDimension(data.kind, data.p1, data.p2) }));
 }
 
 /** Appends an arc (defined by a DXF bulge) from the path's last segment to `to`. */

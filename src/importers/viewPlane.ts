@@ -1,4 +1,4 @@
-import type { DxfBlock, DxfDocument, DxfEntity, DxfPoint, DxfVertex } from './dxfParser';
+import type { DxfBlock, DxfDimension, DxfDocument, DxfEntity, DxfPoint, DxfVertex } from './dxfParser';
 
 export type ViewPlane = 'auto' | 'xy' | 'xz' | 'yz';
 export type ResolvedPlane = 'xy' | 'xz' | 'yz';
@@ -354,8 +354,40 @@ function projectEntity(entity: DxfEntity, plane: ResolvedPlane, xform: (p: Vec3)
         extrusion,
       };
     }
+    case 'DIMENSION':
+      return projectDimension(entity, P);
     default:
       return null;
+  }
+}
+
+function projectDimension(entity: DxfDimension & { layer: string; extrusion: DxfPoint }, P: (p: Vec3) => Vec2): DxfEntity | null {
+  const { layer } = entity;
+  const extrusion = WORLD_Z;
+  const definition = vec3(entity.definition);
+  const textMid = asPoint(P(ocsToWcs(vec3(entity.textMid), entity.extrusion)));
+  const base = { type: 'DIMENSION' as const, definition: asPoint(P(definition)), textMid, layer, extrusion };
+  switch (entity.kind) {
+    case 'radius':
+    case 'diameter':
+      return { ...base, kind: entity.kind, arcPoint: asPoint(P(vec3(entity.arcPoint))) };
+    case 'aligned':
+      return { ...base, kind: 'aligned', first: asPoint(P(vec3(entity.first))), second: asPoint(P(vec3(entity.second))) };
+    case 'rotated': {
+      // The rotation angle is in the entity's OCS; carry it through the same projection as the points.
+      const rad = (entity.angle * Math.PI) / 180;
+      const dir = ocsToWcs({ x: Math.cos(rad), y: Math.sin(rad), z: 0 }, entity.extrusion);
+      const from = P(definition);
+      const to = P({ x: definition.x + dir.x, y: definition.y + dir.y, z: definition.z + dir.z });
+      if (dist(from, to) < 1e-9) return null;
+      return {
+        ...base,
+        kind: 'rotated',
+        first: asPoint(P(vec3(entity.first))),
+        second: asPoint(P(vec3(entity.second))),
+        angle: (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI,
+      };
+    }
   }
 }
 

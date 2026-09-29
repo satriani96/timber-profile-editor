@@ -1,18 +1,20 @@
 import paper from 'paper';
 import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
 import { arcDataFor } from '../canvas/geometry/pathCuts';
+import { isDimensionGroup } from '../canvas/dimensions';
 import { applyItemLayerStyle, ensureLayer, getActiveLayerName, itemLayerName } from '../canvas/layers';
 
 export interface ImportSummary {
   imported: number;
   skipped: Record<string, number>;
   items: paper.Path[];
+  dimensions: paper.Group[];
 }
 
 export type SkipCounter = Record<string, number>;
 
 /** Builds geometry into the active layer under `matrix`, appending to `items`. */
-export type GeometryBuilder = (matrix: paper.Matrix, items: paper.Path[], skipped: SkipCounter) => void;
+export type GeometryBuilder = (matrix: paper.Matrix, items: paper.Item[], skipped: SkipCounter) => void;
 
 /** A parsed file waiting for the user to confirm its units before it is placed. */
 export interface PreparedImport {
@@ -42,10 +44,13 @@ export function skip(skipped: SkipCounter, key: string) {
 
 /** Measures what `build` would produce, without leaving anything in the sketch. */
 export function measureBuilder(build: GeometryBuilder): { extents: PreparedImport['extents']; count: number } {
-  const probe: paper.Path[] = [];
+  const probe: paper.Item[] = [];
   build(new paper.Matrix(), probe, {});
   let bounds: paper.Rectangle | null = null;
-  for (const item of probe) bounds = bounds ? bounds.unite(item.bounds) : item.bounds.clone();
+  // Extents are the geometry's size; dimension labels are sized for the screen, not the part.
+  for (const item of probe) {
+    if (item instanceof paper.Path) bounds = bounds ? bounds.unite(item.bounds) : item.bounds.clone();
+  }
   probe.forEach((item) => item.remove());
   return { extents: bounds ? { width: bounds.width, height: bounds.height } : null, count: probe.length };
 }
@@ -56,7 +61,7 @@ export function measureBuilder(build: GeometryBuilder): { extents: PreparedImpor
  * the exporter flips it back, keeping round-trips exact.
  */
 export function commitImport(prepared: PreparedImport, mmPerUnit: number): ImportSummary {
-  const items: paper.Path[] = [];
+  const items: paper.Item[] = [];
   const skipped: SkipCounter = { ...prepared.unsupported };
   prepared.build(importMatrix(mmPerUnit), items, skipped);
   if (prepared.layers) {
@@ -66,7 +71,12 @@ export function commitImport(prepared: PreparedImport, mmPerUnit: number): Impor
     ensureLayer(itemLayerName(item));
     applyItemLayerStyle(item);
   }
-  return { imported: items.length, skipped, items };
+  return {
+    imported: items.length,
+    skipped,
+    items: items.filter((item): item is paper.Path => item instanceof paper.Path),
+    dimensions: items.filter(isDimensionGroup),
+  };
 }
 
 export function importMatrix(mmPerUnit: number): paper.Matrix {
@@ -88,7 +98,7 @@ function style(path: paper.Path): paper.Path {
 export function commitPath(
   path: paper.Path,
   matrix: paper.Matrix,
-  items: paper.Path[],
+  items: paper.Item[],
   circular?: { center: paper.Point; radius: number; full: boolean },
   layerName?: string
 ) {
@@ -130,7 +140,7 @@ export function buildEllipticArc(
   startParam: number,
   endParam: number,
   matrix: paper.Matrix,
-  items: paper.Path[],
+  items: paper.Item[],
   layerName?: string
 ) {
   let sweep = ((endParam - startParam) % 360 + 360) % 360;
@@ -154,7 +164,7 @@ export function buildCircular(
   startAngle: number,
   endAngle: number,
   matrix: paper.Matrix,
-  items: paper.Path[],
+  items: paper.Item[],
   layerName?: string
 ) {
   let sweep = ((endAngle - startAngle) % 360 + 360) % 360;

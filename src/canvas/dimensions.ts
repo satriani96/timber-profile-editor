@@ -164,29 +164,25 @@ function extension(from: paper.Point, toward: paper.Point, gap: number, overshoo
   });
 }
 
-function buildLinearParts(data: DimensionData): paper.Item[] {
+/** Ends of a linear dimension's dimension line, level with p1 and p2; null when p1 and p2 coincide on an aligned one. */
+export function dimensionLineEnds(data: Pick<DimensionData, 'kind' | 'p1' | 'p2' | 'textPoint'>): [paper.Point, paper.Point] | null {
   const { p1, p2, textPoint, kind } = data;
+  if (kind === 'horizontal') return [new paper.Point(p1.x, textPoint.y), new paper.Point(p2.x, textPoint.y)];
+  if (kind === 'vertical') return [new paper.Point(textPoint.x, p1.y), new paper.Point(textPoint.x, p2.y)];
+  const axis = p2.subtract(p1);
+  if (axis.length < 1e-9) return null;
+  const n = new paper.Point(-axis.y, axis.x).normalize();
+  const offset = textPoint.subtract(p1).dot(n);
+  return [p1.add(n.multiply(offset)), p2.add(n.multiply(offset))];
+}
+
+function buildLinearParts(data: DimensionData): paper.Item[] {
+  const { p1, p2, kind } = data;
   const color = dimColor();
   const { stroke, font, arrow, gap, overshoot } = dimSizes();
-  const horizontal = kind === 'horizontal';
-  const vertical = kind === 'vertical';
-
-  let a1: paper.Point;
-  let a2: paper.Point;
-  if (horizontal) {
-    a1 = new paper.Point(p1.x, textPoint.y);
-    a2 = new paper.Point(p2.x, textPoint.y);
-  } else if (vertical) {
-    a1 = new paper.Point(textPoint.x, p1.y);
-    a2 = new paper.Point(textPoint.x, p2.y);
-  } else {
-    const axis = p2.subtract(p1);
-    if (axis.length < 1e-9) return [];
-    const n = new paper.Point(-axis.y, axis.x).normalize();
-    const offset = textPoint.subtract(p1).dot(n);
-    a1 = p1.add(n.multiply(offset));
-    a2 = p2.add(n.multiply(offset));
-  }
+  const ends = dimensionLineEnds(data);
+  if (!ends) return [];
+  const [a1, a2] = ends;
 
   const items: paper.Item[] = [];
   const e1 = extension(p1, a1, gap, overshoot, color, stroke);
@@ -323,12 +319,4 @@ export function mirrorDimension(group: paper.Group, axisPoint: paper.Point, axis
 
 export function rescaleDimension(group: paper.Group): void {
   rebuildDimension(group);
-}
-
-export function dimensionOffset(p1: paper.Point, p2: paper.Point, text: paper.Point, kind: DimensionKind): number {
-  if (kind === 'horizontal') return text.y - (p1.y + p2.y) / 2;
-  if (kind === 'vertical') return text.x - (p1.x + p2.x) / 2;
-  const axis = p2.subtract(p1);
-  if (axis.length < 1e-9) return 0;
-  return text.subtract(p1).dot(new paper.Point(-axis.y, axis.x).normalize());
 }

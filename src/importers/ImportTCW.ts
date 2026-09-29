@@ -56,7 +56,7 @@ export async function parseTcw(buffer: ArrayBuffer): Promise<TcwDocument> {
   return { version, entities, skipped };
 }
 
-function buildTcwEntities(entities: TcwEntity[], matrix: paper.Matrix, items: paper.Path[], skipped: SkipCounter) {
+function buildTcwEntities(entities: TcwEntity[], matrix: paper.Matrix, items: paper.Item[], skipped: SkipCounter) {
   for (const entity of entities) {
     switch (entity.type) {
       case 'polyline': {
