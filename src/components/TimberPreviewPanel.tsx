@@ -4,7 +4,8 @@ import {
   describeProfileError,
   extractProfileLoops,
 } from '../preview3d/profileSolid';
-import type { GrainDirection, GrainStyle } from '../preview3d/timberMaterial';
+import type { GrainDirection, GrainStyle, TimberLook } from '../preview3d/timberMaterial';
+import { DEFAULT_SPECIES, SPECIES, SPECIES_IDS, isSpeciesId, type SpeciesId } from '../preview3d/species';
 import {
   CAMERA_PRESET_IDS,
   CAMERA_PRESETS,
@@ -84,6 +85,7 @@ async function saveRender(canvas: HTMLCanvasElement, name: string) {
 
 export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreviewPanelProps) {
   const [revision, setRevision] = useState(0);
+  const [speciesId, setSpeciesId] = useState<SpeciesId>(DEFAULT_SPECIES);
   const [grain, setGrain] = useState<GrainStyle>('flat');
   const [grainDirection, setGrainDirection] = useState<GrainDirection>('long');
   const [finishId, setFinishId] = useState<FinishId>(DEFAULT_FINISH);
@@ -93,6 +95,11 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
   const [color, setColor] = useState(FINISHES[DEFAULT_FINISH].color);
   const [colorDraft, setColorDraft] = useState(FINISHES[DEFAULT_FINISH].color);
   const finish = useMemo(() => ({ ...FINISHES[finishId], color }), [color, finishId]);
+  // One object, so the preview rebuilds its mesh once per change rather than once per prop.
+  const look = useMemo<TimberLook>(
+    () => ({ species: SPECIES[speciesId], grain, direction: grainDirection, finish }),
+    [finish, grain, grainDirection, speciesId]
+  );
   const viewportRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -172,7 +179,7 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
               3D preview
             </h2>
             <p className="min-w-0 flex-1 truncate text-gray-600">
-              {FINISHES[finishId].label} pine sample, generated from the current drawing
+              {FINISHES[finishId].label} {SPECIES[speciesId].label.toLowerCase()} sample, generated from the current drawing
             </p>
             <button
               type="button"
@@ -204,6 +211,28 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
                 {CAMERA_PRESET_IDS.map((id) => (
                   <option key={id} value={id} title={CAMERA_PRESETS[id].title}>
                     {CAMERA_PRESETS[id].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5 text-gray-700">
+              Species
+              <select
+                aria-label="Species"
+                title={SPECIES[speciesId].title}
+                value={speciesId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!isSpeciesId(value)) {
+                    throw new Error(`Unknown species: ${value}`);
+                  }
+                  setSpeciesId(value);
+                }}
+                className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700"
+              >
+                {SPECIES_IDS.map((id) => (
+                  <option key={id} value={id} title={SPECIES[id].title}>
+                    {SPECIES[id].label}
                   </option>
                 ))}
               </select>
@@ -298,14 +327,7 @@ export default function TimberPreviewPanel({ sheetName, onClose }: TimberPreview
             <Suspense
               fallback={<p className="p-8 text-center text-gray-600">Loading preview…</p>}
             >
-              <TimberPreview
-                loops={result.loops}
-                length={SAMPLE_LENGTH_MM}
-                grain={grain}
-                grainDirection={grainDirection}
-                finish={finish}
-                preset={preset}
-              />
+              <TimberPreview loops={result.loops} length={SAMPLE_LENGTH_MM} look={look} preset={preset} />
             </Suspense>
           ) : (
             <p className="px-8 py-16 text-center text-gray-700">{result.message}</p>

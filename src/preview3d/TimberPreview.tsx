@@ -4,8 +4,7 @@ import { Environment } from '@react-three/drei';
 import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
-import type { GrainDirection, GrainStyle } from './timberMaterial';
-import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
+import type { TimberLook } from './timberMaterial';
 import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 import {
   CAMERA_PRESETS,
@@ -101,17 +100,15 @@ function FramedCamera({
 interface SceneProps {
   loops: ProfileLoops;
   length: number;
-  grain: GrainStyle;
-  grainDirection: GrainDirection;
-  finish: Finish;
+  look: TimberLook;
   preset: CameraPresetId;
 }
 
-function Scene({ loops, length, grain, grainDirection, finish, preset }: SceneProps) {
+function Scene({ loops, length, look, preset }: SceneProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [mesh, setMesh] = useState<THREE.Mesh | null>(null);
   useLayoutEffect(() => {
-    const next = createTimberMesh(loops, length, grain, finish, grainDirection);
+    const next = createTimberMesh(loops, length, look);
     setMesh(next);
     // VSM shadows need a couple of frames to settle; three is enough and then the loop stops.
     invalidate(3);
@@ -119,7 +116,7 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
       disposeTimberMesh(next);
       setMesh(null);
     };
-  }, [finish, grain, grainDirection, invalidate, length, loops]);
+  }, [invalidate, length, look, loops]);
 
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
@@ -229,16 +226,12 @@ function Scene({ loops, length, grain, grainDirection, finish, preset }: ScenePr
 export default function TimberPreview({
   loops,
   length,
-  grain = 'flat',
-  grainDirection = 'long',
-  finish = FINISHES[DEFAULT_FINISH],
+  look,
   preset,
 }: {
   loops: ProfileLoops;
   length: number;
-  grain?: GrainStyle;
-  grainDirection?: GrainDirection;
-  finish?: Finish;
+  look: TimberLook;
   preset: CameraPresetId;
 }) {
   return (
@@ -263,14 +256,7 @@ export default function TimberPreview({
       // fine grain and the arrises. Cheap only because the frame is drawn when a setting changes.
       dpr={2}
     >
-      <Scene
-        loops={loops}
-        length={length}
-        grain={grain}
-        grainDirection={grainDirection}
-        finish={finish}
-        preset={preset}
-      />
+      <Scene loops={loops} length={length} look={look} preset={preset} />
     </Canvas>
   );
 }

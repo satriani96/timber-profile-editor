@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { softenArrises } from './arris';
-import { createTimberMaterial, type GrainDirection, type GrainStyle } from './timberMaterial';
-import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
+import { createTimberMaterial, type TimberLook } from './timberMaterial';
 import { profileBounds, type Point2, type ProfileLoops } from './profileSolid';
 
 /** Edges meeting at less than this angle are smoothed (sampled arcs); sharper arrises stay crisp. */
@@ -9,13 +8,7 @@ const CREASE_ANGLE = (32 * Math.PI) / 180;
 /** Facets across the quarter round where each face turns into the docked end. */
 const END_ROUND_STEPS = 4;
 
-export function createTimberMesh(
-  loops: ProfileLoops,
-  length: number,
-  grain: GrainStyle = 'flat',
-  finish: Finish = FINISHES[DEFAULT_FINISH],
-  direction: GrainDirection = 'long'
-): THREE.Mesh {
+export function createTimberMesh(loops: ProfileLoops, length: number, look: TimberLook): THREE.Mesh {
   const bounds = profileBounds(loops);
   // Dressed timber carries about a 2 mm round on the arrises of a board and proportionally
   // less on a small moulding. Under-rounding them is what makes an edge read as a drawn white
@@ -32,7 +25,7 @@ export function createTimberMesh(
   geometry.translate(-bounds.cx, -bounds.minY, -length / 2);
   geometry.setAttribute('uv', grainUvs(geometry));
 
-  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, length, grain, finish, direction));
+  const mesh = new THREE.Mesh(geometry, createTimberMaterial(loops, look));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;

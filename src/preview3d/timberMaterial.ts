@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { profileBounds, type ProfileLoops } from './profileSolid';
-import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
+import type { Finish } from './finishes';
+import type { Species } from './species';
 
 /**
- * Solid (3D) procedural clear-pine material.
+ * Solid (3D) procedural timber material.
  *
  * Instead of wrapping a flat picture around the extrusion, the shader models the log the
  * sample was cut from: concentric growth rings around a pith that sits above the piece,
@@ -14,10 +15,10 @@ import { DEFAULT_FINISH, FINISHES, type Finish } from './finishes';
  * moulded faces stay face grain. Long puts the pith beyond the wide face, so the rings
  * cross the long side of that end. Cross quarters the same log the other way — pith
  * beyond the narrow face, like slicing a pizza — so those rings run the short side.
+ *
+ * The species sets the numbers the log is drawn with (colours, ring pitch, heartwood,
+ * resin, surface), all as uniforms, so every species shares the one compiled program.
  */
-
-/** Ring pitch. Tighter rings put more fine grain lines across a planed face. */
-const RING_MM = 5.0;
 
 /**
  * How the sample was cut from the log. Only the pith position and the noise seed change, so
@@ -27,6 +28,14 @@ export type GrainStyle = 'crown' | 'flat' | 'quarter';
 
 /** Which way the growth rings cross the docked end. The log axis does not move. */
 export type GrainDirection = 'long' | 'cross';
+
+/** Everything that decides how the sample's surface is drawn. */
+export interface TimberLook {
+  species: Species;
+  grain: GrainStyle;
+  direction: GrainDirection;
+  finish: Finish;
+}
 
 /**
  * Pith in the profile plane. Long sits it beyond the wide face, so end-grain rings run
@@ -94,6 +103,15 @@ const GLSL_WOOD = /* glsl */ `
 uniform vec2 uPith;
 uniform vec3 uEarlywood;
 uniform vec3 uLatewood;
+uniform float uRingMm;
+uniform float uLateStart;
+uniform float uRingContrast;
+uniform float uResin;
+uniform vec3 uHeartTint;
+uniform vec2 uHeartBand;
+uniform vec2 uHeartScale;
+uniform float uFaceRough;
+uniform vec3 uScatterTint;
 uniform float uBumpScale;
 uniform vec3 uSeed;
 uniform float uCoatCover;
@@ -124,16 +142,16 @@ float woodRadius(vec3 p) {
   return r + (4.0 * sin(r * 0.045) + 1.2 * sin(r * 0.2 + 1.7)) * mix(0.6, 1.35, along);
 }
 
-// Latewood weight in 0..1. On a face the band is a fairly narrow line that eases in and out,
-// the way planed pine photographs; on end grain (crisp -> 1) the same ring is a crisp line
-// with a sharp outer edge. aa widens the transitions by the pixel footprint so distant rings
-// do not shimmer.
+// Latewood weight in 0..1. On a face the band is a line that eases in and out, the way a
+// planed face photographs; on end grain (crisp -> 1) the same ring is a crisp line with a
+// sharp outer edge. aa widens the transitions by the pixel footprint so distant rings do
+// not shimmer.
 float woodLatewood(float r, float aa, float crisp) {
-  float ring = floor(r / RING_MM);
-  float phase = fract(r / RING_MM);
-  // A face is mostly earlywood. Latewood is a line near the end of the ring, not a band
-  // that fills half of it. On the cut end the same ring opens up and every line shows.
-  float start = mix(0.66 + 0.12 * hash13(vec3(ring, 2.7, 9.1)), 0.5, crisp);
+  float ring = floor(r / uRingMm);
+  float phase = fract(r / uRingMm);
+  // Where in the ring the latewood begins on a face is the species: a line near the end of
+  // the ring in pine, most of the ring in oak. On the cut end every ring opens up the same.
+  float start = mix(uLateStart + 0.12 * hash13(vec3(ring, 2.7, 9.1)), 0.5, crisp);
   // On a face some rings barely register and others are strong: that variation in line
   // weight is what separates real grain from a printed pattern. On a cut end every ring shows.
   float depthVar = hash13(vec3(ring, 8.3, 0.4));
@@ -166,12 +184,12 @@ float woodFibre(vec3 p, float px) {
 }
 
 // End grain is cut across the fibres, so it is a field of open cells far finer than a pixel:
-// a faint, fine mottle with the odd resin canal as a tiny dark point. Anything coarser reads
-// as sandpaper. Fades out as the cells approach pixel size.
+// a faint, fine mottle with, in a resinous softwood, the odd resin canal as a tiny dark
+// point. Anything coarser reads as sandpaper. Fades out as the cells approach pixel size.
 float endGrainPores(vec3 p, float px) {
   vec3 q = p + uSeed;
   float mottle = vnoise(q * 3.0) + 0.5 * vnoise(q * 7.0 + 3.0) - 0.75;
-  float canals = smoothstep(0.84, 0.9, vnoise(q * 6.0 + 7.0));
+  float canals = smoothstep(0.84, 0.9, vnoise(q * 6.0 + 7.0)) * uResin;
   return (mottle * 0.35 - canals * 0.5) * (1.0 - smoothstep(0.1, 0.4, px));
 }
 
@@ -243,39 +261,41 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // A coat lies on the machined faces only: the docked ends of a sample are bare timber.
   float cutEnd = endGrain;
   float woodR = woodRadius(woodP);
-  float woodAA = fwidth(woodR) / RING_MM;
+  float woodAA = fwidth(woodR) / uRingMm;
   float woodLate = woodLatewood(woodR, woodAA, endGrain);
   float woodFib = woodFibre(woodP, woodPx);
 
-  // Heartwood is a region of the log, tens of centimetres long, not a wash over every pixel.
-  float heart = smoothstep(0.46, 0.62, fbm(vec3(woodP.z * 0.004, woodP.x * 0.008, 2.4)));
-  // Face bands stay a line; end grain gets the full ring contrast.
-  float bandWeight = mix(0.85, 1.0, endGrain);
+  // Heartwood is a region of the log, centimetres across and tens of centimetres long, not a
+  // wash over every pixel. The species sets how big the regions are and how they are cut.
+  float heart = smoothstep(uHeartBand.x, uHeartBand.y, fbm(vec3(woodP.z * uHeartScale.y, woodP.x * uHeartScale.x, 2.4)));
+  // Face bands read as strongly as the species' rings do; end grain gets the full contrast.
+  float bandWeight = mix(uRingContrast, 1.0, endGrain);
   // The fibre noise is stretched along the log, so on a face it draws streaks; on the cut end
   // it has no stretch left and would blot the earlywood, so it is mostly held back there.
   float woodFibColor = woodFib * mix(1.0, 0.3, endGrain);
   vec3 woodColor = mix(uEarlywood, uLatewood, clamp(woodLate * bandWeight + woodFibColor * 0.08, 0.0, 1.0));
-  woodColor *= mix(vec3(1.0), vec3(1.04, 0.98, 0.92), heart);
+  woodColor *= mix(vec3(1.0), uHeartTint, heart);
   woodColor *= 1.0 + woodFibColor * vec3(0.16, 0.19, 0.24);
-  // Planed pine is not a flat cream ground with lines drawn on it. Across each ring the
+  // A planed face is not a flat ground with lines drawn on it. Across each ring the
   // earlywood darkens gradually towards that year's latewood line, each year grew a slightly
   // different tone, and fine fibre streaks run between the lines. All of it belongs to the
   // faces; the cut end keeps its own ring drawing. It fades as the rings approach pixel size.
   float faceFigure = (1.0 - endGrain) * (1.0 - smoothstep(0.35, 1.2, woodAA));
-  float woodPhase = fract(woodR / RING_MM);
-  float woodRing = floor(woodR / RING_MM);
+  float woodPhase = fract(woodR / uRingMm);
+  float woodRing = floor(woodR / uRingMm);
   // Both ease back out at the ring boundary: a step there is drawn as a hard, jagged edge by
   // the fibre-scale waver in the rings.
   float ringEdge = smoothstep(0.85, 1.0, woodPhase);
-  woodColor = mix(woodColor, uLatewood, smoothstep(0.1, 0.8, woodPhase) * (1.0 - ringEdge) * 0.18 * faceFigure);
+  woodColor = mix(woodColor, uLatewood, smoothstep(0.1, 0.8, woodPhase) * (1.0 - ringEdge) * 0.21 * uRingContrast * faceFigure);
   float ringTone = mix(hash13(vec3(woodRing, 4.1, 7.7)), hash13(vec3(woodRing + 1.0, 4.1, 7.7)), ringEdge) - 0.5;
   woodColor *= 1.0 + ringTone * vec3(0.08, 0.1, 0.14) * faceFigure;
   vec3 streakP = woodP + uSeed;
   float fibreStreak = vnoise(vec3(streakP.x * 1.1, streakP.y * 1.1, streakP.z * 0.012))
     + 0.5 * vnoise(vec3(streakP.x * 2.6 + 5.0, streakP.y * 2.6, streakP.z * 0.02)) - 0.75;
   woodColor *= 1.0 - fibreStreak * 0.14 * (1.0 - endGrain) * (1.0 - smoothstep(0.25, 0.9, woodPx));
-  // A resin streak: rare, long, amber. A canal in the wood, not a crack or a stain.
-  float resin = smoothstep(0.8, 0.9, vnoise(vec3(woodP.x * 0.05, woodP.y * 0.05, woodP.z * 0.003)));
+  // A resin streak: rare, long, amber. A canal in the wood, not a crack or a stain. Only a
+  // resinous softwood has them.
+  float resin = smoothstep(0.8, 0.9, vnoise(vec3(woodP.x * 0.05, woodP.y * 0.05, woodP.z * 0.003))) * uResin;
   resin *= smoothstep(0.62, 0.78, vnoise(vec3(woodP.x * 0.35, woodP.y * 0.35, woodP.z * 0.008)));
   woodColor = mix(woodColor, woodColor * vec3(1.2, 0.9, 0.5), resin * 0.35);
   // Open cells on the end grain: darker, redder rings and a faintly mottled earlywood. Light
@@ -295,11 +315,11 @@ const GLSL_WOOD_EVAL = /* glsl */ `
   // rougher and less reflective here (and in the BRDF below) than the face either side.
   float arris = smoothstep(0.04, 0.25, length(fwidth(vWoodNormal)));
 
-  // Planed clear pine has a soft satin sheen (roughness around 0.6); the dense latewood is a
+  // A planed face has a soft satin sheen (the species sets how soft); the dense latewood is a
   // little glossier than the absorbent earlywood and the fibre breaks the highlight into
   // streaks. A cut end is a field of open, torn cells with no surface to reflect from: fully
   // rough, with only the latewood, which the blade cuts cleanly, keeping a trace of sheen.
-  float faceRough = clamp(0.62 - woodLate * 0.08 + woodFib * 0.14, 0.42, 0.9);
+  float faceRough = clamp(uFaceRough - woodLate * 0.08 + woodFib * 0.14, 0.42, 0.9);
   float endRough = 1.0 - woodLate * 0.12;
   float woodRough = mix(faceRough, endRough, endGrain);
 
@@ -339,7 +359,7 @@ const GLSL_SCATTER = /* glsl */ `
   float woodEdge = pow(1.0 - woodFacing, 2.0);
   float woodScatter = (woodEdge * 0.18 * (1.0 - arris) + endGrain * 0.16) * (1.0 - woodLate * 0.4);
   woodScatter *= mix(1.0, 0.15, coat);
-  outgoingLight += totalDiffuse * vec3(0.72, 0.4, 0.2) * woodScatter;
+  outgoingLight += totalDiffuse * uScatterTint * woodScatter;
 `;
 
 // Applied once three has built the BRDF inputs. The finish's specular and fibre-aligned
@@ -375,19 +395,14 @@ function hashSource(source: string): string {
  * three caches compiled programs by this key, so it must change whenever the injected GLSL
  * does. Deriving it from the source means an edit can never silently reuse a stale program.
  */
-const SHADER_CACHE_KEY = `timber-pine-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + GLSL_SCATTER + GLSL_WOOD_BRDF + VERTEX_PARS + RING_MM)}`;
+const SHADER_CACHE_KEY = `timber-solid-${hashSource(GLSL_NOISE + GLSL_WOOD + GLSL_WOOD_EVAL + GLSL_SCATTER + GLSL_WOOD_BRDF + VERTEX_PARS)}`;
 
-export function createTimberMaterial(
-  loops: ProfileLoops,
-  _length: number,
-  style: GrainStyle = 'flat',
-  finish: Finish = FINISHES[DEFAULT_FINISH],
-  direction: GrainDirection = 'long'
-): THREE.MeshPhysicalMaterial {
+export function createTimberMaterial(loops: ProfileLoops, look: TimberLook): THREE.MeshPhysicalMaterial {
+  const { species, finish, direction } = look;
   const bounds = profileBounds(loops);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
-  const grain = GRAIN_STYLES[style];
+  const grain = GRAIN_STYLES[look.grain];
 
   const material = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -415,12 +430,19 @@ export function createTimberMaterial(
   const uniforms = {
     uPith: { value: pith },
     uSeed: { value: grain.seed },
-    // Photographed clear pine: pale cream earlywood, soft pinkish-tan latewood. The warm key
-    // light and tone mapping add the honey on top, so these read paler than the final image.
     // THREE.Color already converts hex (sRGB) into the linear working space.
-    uEarlywood: { value: new THREE.Color('#eadcbf') },
-    uLatewood: { value: new THREE.Color('#bd9062') },
-    uBumpScale: { value: 0.22 },
+    uEarlywood: { value: new THREE.Color(species.earlywood) },
+    uLatewood: { value: new THREE.Color(species.latewood) },
+    uRingMm: { value: species.ringMm },
+    uLateStart: { value: species.latewoodStart },
+    uRingContrast: { value: species.ringContrast },
+    uResin: { value: species.resin },
+    uHeartTint: { value: new THREE.Vector3(...species.heartTint) },
+    uHeartBand: { value: new THREE.Vector2(...species.heartBand) },
+    uHeartScale: { value: new THREE.Vector2(...species.heartScale) },
+    uFaceRough: { value: species.roughness },
+    uScatterTint: { value: new THREE.Vector3(...species.scatterTint) },
+    uBumpScale: { value: species.bump },
     uCoatCover: { value: finish.cover },
     uCoatGrain: { value: finish.grain },
     uCoatRough: { value: finish.roughness },
@@ -435,7 +457,7 @@ export function createTimberMaterial(
       .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n  vWoodNormal = objectNormal;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWoodPos = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n#define RING_MM ${RING_MM.toFixed(2)}\n${GLSL_NOISE}\n${GLSL_WOOD}`)
+      .replace('#include <common>', `#include <common>\n${GLSL_NOISE}\n${GLSL_WOOD}`)
       .replace('#include <map_fragment>', `${GLSL_WOOD_EVAL}\n  diffuseColor.rgb *= woodColor;`)
       .replace('#include <roughnessmap_fragment>', '  float roughnessFactor = woodRough;')
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n${GLSL_WOOD_BRDF}`)

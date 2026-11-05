@@ -1,5 +1,5 @@
 /**
- * Surface finishes applied to the pine sample.
+ * Surface finishes applied to the timber sample.
  *
  * A finish is a coat of pigment sitting on the machined faces. The docked ends of a sample are
  * always bare timber, as they are on a real offcut, which is also what lets the profile read.
@@ -36,7 +36,7 @@ export interface Finish {
 export const FINISHES: Record<FinishId, Finish> = {
   clear: {
     label: 'Clear',
-    title: 'Bare machined pine, no coating',
+    title: 'Bare machined timber, no coating',
     // The identity coat: no pigment, no coverage, all of the timber's own relief.
     color: '#ffffff',
     cover: 0,

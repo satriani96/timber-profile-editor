@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_FINISH, FINISHES, FINISH_IDS, isFinishId } from './finishes';
 import { createTimberMaterial } from './timberMaterial';
+import { SPECIES } from './species';
 import type { ProfileLoops } from './profileSolid';
 
 const LOOPS: ProfileLoops = {
@@ -42,7 +43,7 @@ describe('finishes', () => {
 describe('createTimberMaterial', () => {
   it('takes its surface properties from the chosen finish', () => {
     for (const id of FINISH_IDS) {
-      const material = createTimberMaterial(LOOPS, 300, 'flat', FINISHES[id]);
+      const material = createTimberMaterial(LOOPS, { species: SPECIES.pine, grain: 'flat', direction: 'long', finish: FINISHES[id] });
       expect(material.specularIntensity).toBe(FINISHES[id].specular);
       // Paint has no fibre direction, so only the uncoated and oiled faces stretch a highlight.
       expect(material.anisotropy).toBe(FINISHES[id].anisotropy);
