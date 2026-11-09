@@ -9,7 +9,7 @@ import {
   type CommonEntityOptions,
 } from '@tarikjabiri/dxf';
 import paper from 'paper';
-import { dimensionLabel, dimensionLineEnds, readDimensionData } from '../canvas/dimensions';
+import { dimensionLabel, dimensionLabelCenter, dimensionLineEnds, readDimensionData } from '../canvas/dimensions';
 import { arcAngles } from '../canvas/geometry/pathCuts';
 import { DIMENSIONS_LAYER, getLayerState, itemLayerName } from '../canvas/layers';
 import { pathToBezierSpline } from '../importers/splineConversion';
@@ -56,7 +56,8 @@ export function buildDxf(project: paper.Project = paper.project): string {
  * (through the second extension line), 11 is the text position, 71 how the label attaches to it
  * and 53 its angle. For a radius 10 is the centre
  * and 15 the rim point the arrow touches; for a diameter 15 is that rim point and 10 the point
- * opposite. The writer's own `offset` option measures from the first point and gets the side
+ * opposite. For an angle 13/14 are the first line, 15/10 the second and 16 a point on the
+ * dimension arc. The writer's own `offset` option measures from the first point and gets the side
  * wrong for vertical and aligned dimensions, so it is not used.
  */
 function exportDimension(group: paper.Group, dxf: DxfWriter) {
@@ -78,6 +79,16 @@ function exportDimension(group: paper.Group, dxf: DxfWriter) {
     // The writer puts its first argument in group 15 and its second in group 10.
     if (data.kind === 'radius') dxf.addRadialDim(dxfPoint(onCurve), dxfPoint(center), radial);
     else dxf.addDiameterDim(dxfPoint(onCurve), dxfPoint(center.multiply(2).subtract(onCurve)), radial);
+    return;
+  }
+
+  if (data.kind === 'angle') {
+    dxf.addAngularLinesDim(
+      { start: dxfPoint(data.p1), end: dxfPoint(data.p2) },
+      { start: dxfPoint(data.p3!), end: dxfPoint(data.p4!) },
+      dxfPoint(data.textPoint),
+      { ...opts, middlePoint: dxfPoint(dimensionLabelCenter(group)), attachmentPoint: AttachmentPoint.MiddleCenter, rotation: 0 }
+    );
     return;
   }
 

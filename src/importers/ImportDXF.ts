@@ -1,6 +1,6 @@
 import paper from 'paper';
 import { PROFILE_LAYER } from '../canvas/layers';
-import { createDimension, measureDimension, type DimensionKind } from '../canvas/dimensions';
+import { angleGeometry, createDimension, lineIntersection, measureDimension, type DimensionKind } from '../canvas/dimensions';
 import { aciToHex } from '../exporters/aci';
 import {
   millimetresPerUnit,
@@ -207,6 +207,17 @@ const PARALLEL_TOLERANCE = 1e-9;
 function buildDimension(entity: DxfDimension, matrix: paper.Matrix, items: paper.Item[], skipped: Record<string, number>) {
   const at = (p: DxfPoint) => matrix.transform(toPoint(p));
   const definition = at(entity.definition);
+
+  if (entity.kind === 'angular') {
+    const lines = { p1: at(entity.first), p2: at(entity.second), p3: at(entity.third), p4: definition, textPoint: at(entity.arcLocation) };
+    if (!lineIntersection(lines.p1, lines.p2, lines.p3, lines.p4)) {
+      skip(skipped, 'DIMENSION (angular, lines do not cross)');
+      return;
+    }
+    items.push(createDimension({ kind: 'angle', ...lines, value: angleGeometry(lines).angle }));
+    return;
+  }
+
   let data: { kind: DimensionKind; p1: paper.Point; p2: paper.Point; textPoint: paper.Point };
 
   switch (entity.kind) {

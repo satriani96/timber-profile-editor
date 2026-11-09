@@ -89,6 +89,25 @@ describe('dimension DXF round trip', () => {
     expect(back.value).toBeCloseTo(20, 9);
   });
 
+  it('keeps an angle dimension: both lines, the sector it measures and its arc radius', () => {
+    // Lines along +x and at 60° above it (Y-down); the arc point sits in the obtuse sector beside them.
+    const original = { kind: 'angle' as const, p1: P(0, 0), p2: P(40, 0), p3: P(5, -8.660254037844386), p4: P(20, -34.64101615137755), textPoint: P(-10, -10) };
+    createDimension({ ...original, value: 120 });
+    const text = buildDxf();
+    clearSketch();
+    importDxfText(text, 1);
+
+    const [back] = dimensions();
+    expect(back.kind).toBe('angle');
+    expect(back.layer).toBe(DIMENSIONS_LAYER);
+    expectPoint(back.p1, original.p1);
+    expectPoint(back.p2, original.p2);
+    expectPoint(back.p3!, original.p3);
+    expectPoint(back.p4!, original.p4);
+    expectPoint(back.textPoint, original.textPoint);
+    expect(back.value).toBeCloseTo(120, 6);
+  });
+
   it('recomputes the value in the units the user picked', () => {
     createDimension({ kind: 'horizontal', p1: P(0, 0), p2: P(2, 0), textPoint: P(1, -1), value: 2 });
     const text = buildDxf();
@@ -145,8 +164,15 @@ describe('dimension DXF import from other CAD', () => {
   });
 
   it('skips what the sketch cannot draw, and says why', () => {
-    const angular = importDxfText(dimensionFile(['10', 0, '20', 0, '11', 1, '21', 1, '70', 2]), 1);
-    expect(angular.skipped['DIMENSION (angular)']).toBe(1);
+    const angular = importDxfText(dimensionFile(['10', 0, '20', 0, '11', 1, '21', 1, '70', 5]), 1);
+    expect(angular.skipped['DIMENSION (angular 3-point)']).toBe(1);
+
+    // prettier-ignore
+    const parallel = importDxfText(dimensionFile([
+      '10', 10, '20', 5, '11', 5, '21', 2, '70', 2,
+      '13', 0, '23', 0, '14', 10, '24', 0, '15', 0, '25', 5, '16', 5, '26', 2,
+    ]), 1);
+    expect(parallel.skipped['DIMENSION (angular, lines do not cross)']).toBe(1);
 
     const noText = importDxfText(dimensionFile(['10', 0, '20', 5, '70', 0, '13', 0, '23', 0, '14', 10, '24', 0]), 1);
     expect(noText.skipped['DIMENSION (no text position)']).toBe(1);

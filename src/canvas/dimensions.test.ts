@@ -4,6 +4,7 @@ import { isSketchPath, nearestSketchPath } from './geometry/pathCuts';
 import { buildDxf } from '../exporters/ExportDXF';
 import { parseDxf } from '../importers/dxfParser';
 import {
+  angleGeometry,
   createDimension,
   dimensionLabel,
   formatDimensionValue,
@@ -135,5 +136,41 @@ describe('dimension line gap', () => {
 
   it('drops a line that lies entirely inside the label', () => {
     expect(segmentsOutside(P(45, 0), P(55, 0), label)).toHaveLength(0);
+  });
+});
+
+describe('angle dimensions', () => {
+  beforeEach(() => {
+    paper.setup(new paper.Size(800, 600));
+  });
+
+  // A horizontal line and one rising at 60 degrees from it (Y-down), which would meet at the origin.
+  const lines = {
+    p1: new paper.Point(10, 0),
+    p2: new paper.Point(40, 0),
+    p3: new paper.Point(5, -8.660254037844386),
+    p4: new paper.Point(20, -34.64101615137755),
+  };
+
+  it('measures the sector the arc point sits in, from where the lines cross', () => {
+    const acute = angleGeometry({ ...lines, textPoint: new paper.Point(20, -5) });
+    expect(acute.angle).toBeCloseTo(60);
+    expect(acute.vertex.x).toBeCloseTo(0);
+    expect(acute.vertex.y).toBeCloseTo(0);
+    expect(acute.radius).toBeCloseTo(Math.hypot(20, 5));
+    expect(acute.start.y).toBeCloseTo(0);
+
+    expect(angleGeometry({ ...lines, textPoint: new paper.Point(-20, -5) }).angle).toBeCloseTo(120);
+    expect(angleGeometry({ ...lines, textPoint: new paper.Point(-20, 5) }).angle).toBeCloseTo(60);
+    expect(angleGeometry({ ...lines, textPoint: new paper.Point(20, 5) }).angle).toBeCloseTo(120);
+  });
+
+  it('labels in degrees and follows the arc into the next sector when dragged', () => {
+    const group = createDimension({ kind: 'angle', ...lines, textPoint: new paper.Point(20, -5), value: 60 });
+    const label = () => (group.children.find((c) => c instanceof paper.PointText) as paper.PointText).content;
+    expect(label()).toBe('60°');
+    offsetDimension(group, new paper.Point(-40, 0));
+    expect(group.data.value).toBeCloseTo(120);
+    expect(label()).toBe('120°');
   });
 });

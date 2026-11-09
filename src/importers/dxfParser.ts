@@ -35,16 +35,26 @@ export type DxfEntity = WithMeta<
  * DIMENSION entities the sketch can rebuild. Points are WCS except `textMid`, which DXF puts in
  * the entity's OCS. `definition` (10) sits on the dimension line for linear kinds, is the centre
  * for a radius, and is the far rim point for a diameter; `arcPoint` (15) is the rim point the
- * arrow touches.
+ * arrow touches. An angular dimension measures between the line `first`→`second` (13, 14) and
+ * the line `third`→`definition` (15, 10), with `arcLocation` (16) a point on its dimension arc.
  */
 export type DxfDimension =
   | { type: 'DIMENSION'; kind: 'rotated'; definition: DxfPoint; textMid: DxfPoint; first: DxfPoint; second: DxfPoint; angle: number }
   | { type: 'DIMENSION'; kind: 'aligned'; definition: DxfPoint; textMid: DxfPoint; first: DxfPoint; second: DxfPoint }
-  | { type: 'DIMENSION'; kind: 'radius' | 'diameter'; definition: DxfPoint; textMid: DxfPoint; arcPoint: DxfPoint };
+  | { type: 'DIMENSION'; kind: 'radius' | 'diameter'; definition: DxfPoint; textMid: DxfPoint; arcPoint: DxfPoint }
+  | {
+      type: 'DIMENSION';
+      kind: 'angular';
+      definition: DxfPoint;
+      textMid: DxfPoint;
+      first: DxfPoint;
+      second: DxfPoint;
+      third: DxfPoint;
+      arcLocation: DxfPoint;
+    };
 
 /** DIMENSION group 70 low bits; the high bits are display flags. */
 const DIMENSION_TYPE_NAMES: Record<number, string> = {
-  2: 'angular',
   5: 'angular 3-point',
   6: 'ordinate',
 };
@@ -195,6 +205,15 @@ function parseDimension(record: Pair[], unsupported: Record<string, number>): Dx
       };
     case 1:
       return { ...common, kind: 'aligned', first: pointAt(record, 13), second: pointAt(record, 14) };
+    case 2:
+      return {
+        ...common,
+        kind: 'angular',
+        first: pointAt(record, 13),
+        second: pointAt(record, 14),
+        third: pointAt(record, 15),
+        arcLocation: pointAt(record, 16),
+      };
     case 3:
       return { ...common, kind: 'diameter', arcPoint: pointAt(record, 15) };
     case 4:

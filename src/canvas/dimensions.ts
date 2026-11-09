@@ -3,7 +3,7 @@ import { DIMENSIONS_LAYER, ensureLayer, layerColor } from './layers';
 import { reflectPoint } from './geometry/itemData';
 import { BASE_STROKE_WIDTH } from '../components/sketch/constants';
 
-export type DimensionKind = 'aligned' | 'horizontal' | 'vertical' | 'diameter' | 'radius' | 'distance';
+export type DimensionKind = 'aligned' | 'horizontal' | 'vertical' | 'diameter' | 'radius' | 'distance' | 'angle';
 
 export interface DimensionData {
   isDimension: true;
@@ -11,6 +11,10 @@ export interface DimensionData {
   kind: DimensionKind;
   p1: paper.Point;
   p2: paper.Point;
+  /** Angle dimensions only: the second line's ends (p1 and p2 are the first line's). */
+  p3?: paper.Point;
+  p4?: paper.Point;
+  /** For an angle this is a point on the dimension arc: it sets the radius and which of the four sectors is measured. */
   textPoint: paper.Point;
   value: number;
 }
@@ -25,6 +29,7 @@ export function dimensionLabel(kind: DimensionKind, value: number): string {
   const n = formatDimensionValue(value);
   if (kind === 'diameter') return `⌀${n}`;
   if (kind === 'radius') return `R${n}`;
+  if (kind === 'angle') return `${n}°`;
   return n;
 }
 
@@ -64,6 +69,56 @@ export function measureDimension(kind: DimensionKind, p1: paper.Point, p2: paper
   }
 }
 
+/** Where the infinite lines through a→b and c→d cross; null when they are parallel. */
+export function lineIntersection(a: paper.Point, b: paper.Point, c: paper.Point, d: paper.Point): paper.Point | null {
+  const d1 = b.subtract(a);
+  const d2 = d.subtract(c);
+  const det = d1.cross(d2);
+  if (Math.abs(det) <= 1e-9 * d1.length * d2.length) return null;
+  return a.add(d1.multiply(c.subtract(a).cross(d2) / det));
+}
+
+export interface AngleGeometry {
+  vertex: paper.Point;
+  radius: number;
+  /** Unit directions from the vertex along each line, on the sides that bound the measured sector. */
+  ray1: paper.Point;
+  ray2: paper.Point;
+  /** +1 or -1: the rotation direction (Paper degrees) that carries ray1 onto ray2 through the sector. */
+  turn: number;
+  /** Degrees between the two rays, always under 180. */
+  angle: number;
+  start: paper.Point;
+  end: paper.Point;
+}
+
+type AngleLines = Pick<DimensionData, 'p1' | 'p2' | 'p3' | 'p4' | 'textPoint'>;
+
+/** The arc an angle dimension draws: the sector between the two lines that holds `textPoint`, at its distance from the vertex. */
+export function angleGeometry(data: AngleLines): AngleGeometry {
+  const { p1, p2, textPoint } = data;
+  const p3 = data.p3!;
+  const p4 = data.p4!;
+  const vertex = lineIntersection(p1, p2, p3, p4)!;
+  const u1 = p2.subtract(p1).normalize();
+  const u2 = p4.subtract(p3).normalize();
+  const t = textPoint.subtract(vertex);
+  const det = u1.cross(u2);
+  const ray1 = t.cross(u2) / det >= 0 ? u1 : u1.multiply(-1);
+  const ray2 = u1.cross(t) / det >= 0 ? u2 : u2.multiply(-1);
+  const radius = t.length;
+  return {
+    vertex,
+    radius,
+    ray1,
+    ray2,
+    turn: Math.sign(ray1.cross(ray2)),
+    angle: (Math.acos(Math.max(-1, Math.min(1, ray1.dot(ray2)))) * 180) / Math.PI,
+    start: vertex.add(ray1.multiply(radius)),
+    end: vertex.add(ray2.multiply(radius)),
+  };
+}
+
 export function isDimensionGroup(item: paper.Item): item is paper.Group {
   return item instanceof paper.Group && Boolean(item.data?.isDimension);
 }
@@ -92,6 +147,7 @@ export function readDimensionData(group: paper.Group): DimensionData {
     ...d,
     p1: toPoint(d.p1, new paper.Point(0, 0)),
     p2: toPoint(d.p2, new paper.Point(0, 0)),
+    ...(d.kind === 'angle' ? { p3: toPoint(d.p3, new paper.Point(0, 0)), p4: toPoint(d.p4, new paper.Point(0, 0)) } : {}),
     textPoint: toPoint(d.textPoint, new paper.Point(0, 0)),
   };
 }
@@ -268,7 +324,72 @@ function buildRadialParts(data: DimensionData): paper.Item[] {
   return items;
 }
 
+/** An extension along a measured line out to where the dimension arc meets it, when the arc ends beyond the line. */
+function angleExtension(a: paper.Point, b: paper.Point, arcEnd: paper.Point, gap: number, overshoot: number, color: paper.Color, stroke: number): paper.Path | null {
+  const along = b.subtract(a);
+  const s = arcEnd.subtract(a).dot(along) / along.dot(along);
+  if (s < 0) return extension(a, arcEnd, gap, overshoot, color, stroke);
+  if (s > 1) return extension(b, arcEnd, gap, overshoot, color, stroke);
+  return null;
+}
+
+function buildAngleParts(data: DimensionData): paper.Item[] {
+  const g = angleGeometry(data);
+  const color = dimColor();
+  const { stroke, font, arrow, gap, overshoot } = dimSizes();
+  const origin = new paper.Point(0, 0);
+  const items: paper.Item[] = [];
+
+  const e1 = angleExtension(data.p1, data.p2, g.start, gap, overshoot, color, stroke);
+  const e2 = angleExtension(data.p3!, data.p4!, g.end, gap, overshoot, color, stroke);
+  if (e1) items.push(e1);
+  if (e2) items.push(e2);
+
+  // Outward tangents at the arc's two ends.
+  const out1 = g.ray1.rotate(-g.turn * 90, origin);
+  const out2 = g.ray2.rotate(g.turn * 90, origin);
+  const sweep = (g.angle * Math.PI) / 180;
+  if (sweep * g.radius < arrow * 2.4) {
+    items.push(tick(g.start, out1, arrow, color, stroke), tick(g.end, out2, arrow, color, stroke));
+  } else {
+    items.push(arrowHead(g.start, out1, arrow, color), arrowHead(g.end, out2, arrow, color));
+  }
+
+  const onArc = (rad: number, radius = g.radius) =>
+    g.vertex.add(g.ray1.rotate((g.turn * rad * 180) / Math.PI, origin).multiply(radius));
+  const arcPiece = (from: number, to: number) =>
+    new paper.Path.Arc({ from: onArc(from), through: onArc((from + to) / 2), to: onArc(to), ...lineStyle(color, stroke), insert: false });
+
+  // The label reads horizontally in a gap at the middle of the arc; when the arc is too short to hold it, it sits just outside.
+  const label = new paper.PointText({
+    point: g.vertex,
+    content: dimensionLabel('angle', data.value),
+    fillColor: color,
+    fontSize: font,
+    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    justification: 'center',
+    insert: false,
+  });
+  const reach = Math.max(label.bounds.width, label.bounds.height) / 2 + font * 0.5;
+  const half = reach / g.radius;
+  if (2 * half < sweep) {
+    label.position = onArc(sweep / 2);
+    items.push(arcPiece(0, sweep / 2 - half), arcPiece(sweep / 2 + half, sweep));
+  } else {
+    label.position = onArc(sweep / 2, g.radius + reach);
+    items.push(arcPiece(0, sweep));
+  }
+  items.push(label);
+  return items;
+}
+
+/** Centre of the label as drawn, for exporters that need to say where the text sits. */
+export function dimensionLabelCenter(group: paper.Group): paper.Point {
+  return group.children.find((child) => child instanceof paper.PointText)!.position;
+}
+
 export function buildDimensionChildren(data: DimensionData): paper.Item[] {
+  if (data.kind === 'angle') return buildAngleParts(data);
   if (data.kind === 'diameter' || data.kind === 'radius') return buildRadialParts(data);
   return buildLinearParts(data);
 }
@@ -291,6 +412,7 @@ export function createDimension(data: Omit<DimensionData, 'isDimension' | 'layer
     p1: data.p1.clone(),
     p2: data.p2.clone(),
     textPoint: data.textPoint.clone(),
+    ...(data.kind === 'angle' ? { p3: data.p3!.clone(), p4: data.p4!.clone() } : {}),
   };
   const group = new paper.Group({ insert: true });
   group.data = full;
@@ -298,28 +420,34 @@ export function createDimension(data: Omit<DimensionData, 'isDimension' | 'layer
   return group;
 }
 
+/** Every point a dimension is defined by, passed through `fn`. */
+function mapDimensionPoints(data: DimensionData, fn: (p: paper.Point) => paper.Point) {
+  return {
+    p1: fn(data.p1),
+    p2: fn(data.p2),
+    textPoint: fn(data.textPoint),
+    ...(data.kind === 'angle' ? { p3: fn(data.p3!), p4: fn(data.p4!) } : {}),
+  };
+}
+
 export function offsetDimension(group: paper.Group, delta: paper.Point): void {
   const data = readDimensionData(group);
   data.textPoint = data.textPoint.add(delta);
   group.data = { ...group.data, textPoint: data.textPoint };
+  // Dragging an angle's arc across one of its lines moves it into the neighbouring sector, which measures the supplement.
+  if (data.kind === 'angle') group.data.value = angleGeometry(data).angle;
   rebuildDimension(group);
 }
 
 export function translateDimension(group: paper.Group, delta: paper.Point): void {
   const data = readDimensionData(group);
-  data.p1 = data.p1.add(delta);
-  data.p2 = data.p2.add(delta);
-  data.textPoint = data.textPoint.add(delta);
-  group.data = { ...group.data, p1: data.p1, p2: data.p2, textPoint: data.textPoint };
+  group.data = { ...group.data, ...mapDimensionPoints(data, (p) => p.add(delta)) };
   rebuildDimension(group);
 }
 
 export function rotateDimension(group: paper.Group, angleDeg: number, center: paper.Point): void {
   const data = readDimensionData(group);
-  const turn = (p: paper.Point) => p.rotate(angleDeg, center);
-  data.p1 = turn(data.p1);
-  data.p2 = turn(data.p2);
-  data.textPoint = turn(data.textPoint);
+  Object.assign(data, mapDimensionPoints(data, (p) => p.rotate(angleDeg, center)));
   if (data.kind === 'horizontal' || data.kind === 'vertical') data.kind = 'aligned';
   group.data = { ...group.data, ...data };
   rebuildDimension(group);
@@ -327,9 +455,7 @@ export function rotateDimension(group: paper.Group, angleDeg: number, center: pa
 
 export function mirrorDimension(group: paper.Group, axisPoint: paper.Point, axisDirection: paper.Point): void {
   const data = readDimensionData(group);
-  data.p1 = reflectPoint(data.p1, axisPoint, axisDirection);
-  data.p2 = reflectPoint(data.p2, axisPoint, axisDirection);
-  data.textPoint = reflectPoint(data.textPoint, axisPoint, axisDirection);
+  Object.assign(data, mapDimensionPoints(data, (p) => reflectPoint(p, axisPoint, axisDirection)));
   if (data.kind === 'horizontal' || data.kind === 'vertical') {
     const dx = Math.abs(data.p2.x - data.p1.x);
     const dy = Math.abs(data.p2.y - data.p1.y);

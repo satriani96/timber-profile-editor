@@ -373,6 +373,16 @@ function projectDimension(entity: DxfDimension & { layer: string; extrusion: Dxf
       return { ...base, kind: entity.kind, arcPoint: asPoint(P(vec3(entity.arcPoint))) };
     case 'aligned':
       return { ...base, kind: 'aligned', first: asPoint(P(vec3(entity.first))), second: asPoint(P(vec3(entity.second))) };
+    case 'angular':
+      return {
+        ...base,
+        kind: 'angular',
+        first: asPoint(P(vec3(entity.first))),
+        second: asPoint(P(vec3(entity.second))),
+        third: asPoint(P(vec3(entity.third))),
+        // DXF stores the arc location in the entity's OCS, like the text position.
+        arcLocation: asPoint(P(ocsToWcs(vec3(entity.arcLocation), entity.extrusion))),
+      };
     case 'rotated': {
       // The rotation angle is in the entity's OCS; carry it through the same projection as the points.
       const rad = (entity.angle * Math.PI) / 180;

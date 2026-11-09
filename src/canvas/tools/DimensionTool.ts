@@ -1,10 +1,10 @@
 import paper from 'paper';
 import type { MutableRefObject } from 'react';
 import { BASE_STROKE_WIDTH } from '../../components/sketch/constants';
-import { classifyLinearKind, createDimension, measureDimension, rebuildDimension, type DimensionData } from '../dimensions';
+import { angleGeometry, classifyLinearKind, createDimension, measureDimension, rebuildDimension, type DimensionData } from '../dimensions';
 import { findSnap, type SnapConfig } from '../../utils/snapHelpers';
 import { isPrimaryButton } from './drawingState';
-import { pickDimensionTarget } from './dimensionPick';
+import { pickAngleLine, pickDimensionTarget } from './dimensionPick';
 
 export interface DimensionToolState {
   isPanningRef: MutableRefObject<boolean>;
@@ -17,6 +17,16 @@ interface PendingLinear {
   mode: 'linear';
   p1: paper.Point;
   p2: paper.Point;
+  /** Set when p1 and p2 are the ends of a picked line: clicking a second line then measures the angle between them. */
+  fromLine: boolean;
+}
+
+interface PendingAngle {
+  mode: 'angle';
+  p1: paper.Point;
+  p2: paper.Point;
+  p3: paper.Point;
+  p4: paper.Point;
 }
 
 interface PendingRadial {
@@ -31,7 +41,7 @@ interface PendingDistance {
   first: paper.Point;
 }
 
-type Pending = PendingLinear | PendingRadial | PendingDistance;
+type Pending = PendingLinear | PendingAngle | PendingRadial | PendingDistance;
 
 const HOVER_COLOR = '#2563eb';
 
@@ -104,6 +114,11 @@ export function createDimensionTool(state: DimensionToolState) {
       });
       return;
     }
+    if (pending.mode === 'angle') {
+      const lines = { p1: pending.p1.clone(), p2: pending.p2.clone(), p3: pending.p3.clone(), p4: pending.p4.clone(), textPoint: place.clone() };
+      showPreview({ kind: 'angle', ...lines, value: angleGeometry(lines).angle });
+      return;
+    }
     showPreview({
       kind: pending.kind,
       p1: pending.center.clone(),
@@ -133,8 +148,15 @@ export function createDimensionTool(state: DimensionToolState) {
     }
     if (pending) {
       findSnap(point, snapConfig);
-      clearHover();
       updatePreview(point);
+      const second = pending.mode === 'linear' && pending.fromLine ? pickAngleLine(point, pending.p1, pending.p2) : null;
+      if (second) {
+        highlightEntity(second.path);
+        setCursor('pointer');
+      } else {
+        clearHover();
+        setCursor('crosshair');
+      }
       return;
     }
     const pick = pickDimensionTarget(point, snapConfig);
@@ -164,11 +186,22 @@ export function createDimensionTool(state: DimensionToolState) {
     if (pending?.mode === 'distance') {
       const snap = findSnap(point, snapConfig);
       if (!snap) return;
-      pending = { mode: 'linear', p1: pending.first, p2: snap.point.clone() };
+      pending = { mode: 'linear', p1: pending.first, p2: snap.point.clone(), fromLine: false };
       isDimensioningRef.current = true;
       clearHover();
       updatePreview(point);
       return;
+    }
+
+    if (pending?.mode === 'linear' && pending.fromLine) {
+      const second = pickAngleLine(point, pending.p1, pending.p2);
+      if (second) {
+        pending = { mode: 'angle', p1: pending.p1, p2: pending.p2, p3: second.p1, p4: second.p2 };
+        clearPreview();
+        clearHover();
+        updatePreview(point);
+        return;
+      }
     }
 
     if (pending) {
@@ -190,7 +223,7 @@ export function createDimensionTool(state: DimensionToolState) {
     } else if (pick.type === 'arc') {
       pending = { mode: 'radial', kind: 'radius', center: pick.center, onCurve: pick.onCurve };
     } else {
-      pending = { mode: 'linear', p1: pick.p1, p2: pick.p2 };
+      pending = { mode: 'linear', p1: pick.p1, p2: pick.p2, fromLine: true };
     }
     isDimensioningRef.current = true;
     clearHover();
