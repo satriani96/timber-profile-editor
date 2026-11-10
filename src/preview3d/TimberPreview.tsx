@@ -10,6 +10,7 @@ import {
   CAMERA_PRESETS,
   type CameraPresetId,
   rotateStudioPoint,
+  stageSample,
   studioEnvironmentRotation,
   studioRigQuaternion,
 } from './cameraPresets';
@@ -123,16 +124,18 @@ function Scene({ loops, length, look, preset }: SceneProps) {
   const height = bounds.maxY - bounds.minY;
   const { azimuth, elevation } = CAMERA_PRESETS[preset];
 
-  // Whole sample in frame, like a photographed offcut: near end grain on the left, far end
-  // on the right, seen from slightly above.
-  const target = useMemo(() => new THREE.Vector3(0, height / 2, 0), [height]);
-  const radius = Math.hypot(width, height, length) * 0.4;
+  // Whole sample in frame, like a photographed offcut: lying down with the near end grain on
+  // the left and the far end on the right, seen from slightly above, or stood on end.
+  const staging = stageSample(CAMERA_PRESETS[preset], width, height, length);
+  const [targetX, targetY, targetZ] = staging.target;
+  const target = useMemo(() => new THREE.Vector3(targetX, targetY, targetZ), [targetX, targetY, targetZ]);
   const extent = Math.max(width, height, length);
   const rig = useMemo(() => studioRigQuaternion(azimuth, elevation), [azimuth, elevation]);
   const envRotation = useMemo(() => studioEnvironmentRotation(azimuth, elevation), [azimuth, elevation]);
+  const [footprintX, footprintZ] = staging.footprint;
   const groundMaterial = useMemo(
-    () => createGroundShadowMaterial(width / 2, length / 2, extent),
-    [extent, length, width]
+    () => createGroundShadowMaterial(footprintX, footprintZ, extent),
+    [extent, footprintX, footprintZ]
   );
   useLayoutEffect(() => () => groundMaterial.dispose(), [groundMaterial]);
 
@@ -147,7 +150,7 @@ function Scene({ loops, length, look, preset }: SceneProps) {
 
   return (
     <>
-      <FramedCamera target={target} radius={radius} azimuth={azimuth} elevation={elevation} />
+      <FramedCamera target={target} radius={staging.radius} azimuth={azimuth} elevation={elevation} />
       {/* The HDR load suspends; keep that boundary local so the rest of the scene (and its
           layout effects) is not torn down and re-run while the file streams in. */}
       <Suspense fallback={null}>
@@ -187,7 +190,9 @@ function Scene({ loops, length, look, preset }: SceneProps) {
       {/* Ground bounce only. A bright sky colour on this light also lit the top face and
           lifted it into the highlights. */}
       <hemisphereLight args={['#1c1814', '#b08968', 0.4]} />
-      <primitive object={mesh} />
+      <group rotation-x={staging.rotationX} position={staging.position}>
+        <primitive object={mesh} />
+      </group>
       {/* Ground shadow as a product sits on a white sweep. A dim, near-overhead light casts a
           wide-blurred VSM shadow onto a plane that shows nothing but the shadow it receives, so
           the pool sits directly under the piece and feathers out, and the background stays clear. */}
