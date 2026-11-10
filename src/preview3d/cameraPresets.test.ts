@@ -4,6 +4,7 @@ import {
   CAMERA_PRESETS,
   cameraDirection,
   studioRigQuaternion,
+  keyLightPosition,
   rotateStudioPoint,
   stageSample,
 } from './cameraPresets';
@@ -58,6 +59,28 @@ describe('stageSample', () => {
     const { box } = staged('face');
     expect(box.min.y).toBeCloseTo(0);
     expect(box.max.z).toBeCloseTo(150);
+  });
+});
+
+describe('keyLightPosition', () => {
+  const target = new THREE.Vector3(0, 150, 0);
+
+  it('rakes the upright key across the face from the camera side', () => {
+    const toKey = new THREE.Vector3(...keyLightPosition(CAMERA_PRESETS.upright, target, 300)).sub(target).normalize();
+    // The upright face looks straight at the camera (+Z). The key sits to the camera's right
+    // (+X) and meets the face low, between 15 and 30 degrees off its surface.
+    expect(toKey.x).toBeGreaterThan(0);
+    const offSurface = Math.PI / 2 - toKey.angleTo(new THREE.Vector3(0, 0, 1));
+    expect(offSurface).toBeGreaterThan((15 * Math.PI) / 180);
+    expect(offSurface).toBeLessThan((30 * Math.PI) / 180);
+  });
+
+  it('keeps the catalogue key where the default shot authored it', () => {
+    const { threeQuarter } = CAMERA_PRESETS;
+    const [x, y, z] = keyLightPosition(threeQuarter, target, 300);
+    expect(x).toBeCloseTo(330);
+    expect(y).toBeCloseTo(420);
+    expect(z).toBeCloseTo(270);
   });
 });
 

@@ -9,6 +9,7 @@ import { createTimberMesh, disposeTimberMesh } from './timberMesh';
 import {
   CAMERA_PRESETS,
   type CameraPresetId,
+  keyLightPosition,
   rotateStudioPoint,
   stageSample,
   studioEnvironmentRotation,
@@ -139,12 +140,15 @@ function Scene({ loops, length, look, preset }: SceneProps) {
   );
   useLayoutEffect(() => () => groundMaterial.dispose(), [groundMaterial]);
 
-  // Softbox key up and to the camera's right. Authored for the default three-quarter shot,
-  // then rotated with the camera so every preset keeps the same catalogue lighting.
-  const keyPosition = rotateStudioPoint(extent * 1.1, extent * 1.4, extent * 0.9, target, rig);
+  const keyPosition = keyLightPosition(CAMERA_PRESETS[preset], target, extent);
   const keyDistance = Math.hypot(keyPosition[0] - target.x, keyPosition[1] - target.y, keyPosition[2] - target.z);
   const fillPosition = rotateStudioPoint(-extent * 0.6, extent * 0.4, extent * 1.2, target, rig);
   const shadowPosition = rotateStudioPoint(-extent * 0.7, extent * 2.0, -extent * 0.55, target, rig);
+  // Directional lights shine from their position towards their target, and their shadow
+  // frustum is centred on it. Left at the origin, the target sits at the foot of an upright
+  // sample, so the key would skim past it at the wrong angle and its shadow map would stop
+  // short of the top. three only keeps a target's matrix current if it is in the scene.
+  const lightTarget = useMemo(() => new THREE.Object3D(), []);
 
   if (!mesh) return null;
 
@@ -164,8 +168,10 @@ function Scene({ loops, length, look, preset }: SceneProps) {
           the single biggest tell of a CG surface. The studio HDR has real softboxes in it and
           gives broad, soft, shaped reflections, so it carries the specular and this light is
           left to model the form and cast the shadow. */}
+      <primitive object={lightTarget} position={target} />
       <directionalLight
         position={keyPosition}
+        target={lightTarget}
         intensity={0.95}
         color="#fffaf3"
         castShadow
@@ -186,7 +192,7 @@ function Scene({ loops, length, look, preset }: SceneProps) {
           a real studio light. A directional key alone lights every flat face perfectly evenly.
           Intensity is set so that at the piece's centre it adds the same as a directional 0.25. */}
       <pointLight position={keyPosition} intensity={0.25 * keyDistance ** 2} decay={2} color="#fffaf3" />
-      <directionalLight position={fillPosition} intensity={0.3} color="#f2f4f8" />
+      <directionalLight position={fillPosition} target={lightTarget} intensity={0.3} color="#f2f4f8" />
       {/* Ground bounce only. A bright sky colour on this light also lit the top face and
           lifted it into the highlights. */}
       <hemisphereLight args={['#1c1814', '#b08968', 0.4]} />
@@ -199,6 +205,7 @@ function Scene({ loops, length, look, preset }: SceneProps) {
       <directionalLight
         // Behind and above, so the pool is thrown one way: out in front of the piece towards the camera.
         position={shadowPosition}
+        target={lightTarget}
         intensity={0.2}
         color="#ffffff"
         castShadow

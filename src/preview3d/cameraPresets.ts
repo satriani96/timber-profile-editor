@@ -10,7 +10,16 @@ export interface CameraPreset {
   elevation: number;
   /** Stand the sample on its end, length vertical, instead of lying it along the ground. */
   upright: boolean;
+  /**
+   * Where the key softbox sits. Catalogue is the three-quarter studio key, turned with the
+   * camera. Raking skims it across the face from the camera's right, so every step, groove
+   * and bead casts a short shadow across the face; seen square on, that is the only thing
+   * that shows the profile's relief.
+   */
+  key: KeyLight;
 }
+
+export type KeyLight = 'catalogue' | 'raking';
 
 const deg = (degrees: number) => (degrees * Math.PI) / 180;
 
@@ -21,6 +30,7 @@ export const CAMERA_PRESETS: Record<CameraPresetId, CameraPreset> = {
     azimuth: deg(45),
     elevation: deg(14),
     upright: false,
+    key: 'catalogue',
   },
   threeQuarterOpposite: {
     label: '¾ other side',
@@ -28,6 +38,7 @@ export const CAMERA_PRESETS: Record<CameraPresetId, CameraPreset> = {
     azimuth: deg(-45),
     elevation: deg(14),
     upright: false,
+    key: 'catalogue',
   },
   end: {
     label: 'End',
@@ -35,6 +46,7 @@ export const CAMERA_PRESETS: Record<CameraPresetId, CameraPreset> = {
     azimuth: deg(12),
     elevation: deg(10),
     upright: false,
+    key: 'catalogue',
   },
   face: {
     label: 'Face',
@@ -42,6 +54,7 @@ export const CAMERA_PRESETS: Record<CameraPresetId, CameraPreset> = {
     azimuth: deg(90),
     elevation: deg(12),
     upright: false,
+    key: 'catalogue',
   },
   upright: {
     label: 'Upright',
@@ -49,6 +62,7 @@ export const CAMERA_PRESETS: Record<CameraPresetId, CameraPreset> = {
     azimuth: 0,
     elevation: 0,
     upright: true,
+    key: 'raking',
   },
 };
 
@@ -126,6 +140,36 @@ export function rotateStudioPoint(
   quaternion: THREE.Quaternion
 ): [number, number, number] {
   const point = new THREE.Vector3(x, y, z).sub(pivot).applyQuaternion(quaternion).add(pivot);
+  return [point.x, point.y, point.z];
+}
+
+/**
+ * Raking key in the camera's own frame: well out to its right, a little above and only a
+ * little in front, so the light meets a face square to the camera about 20 degrees off its
+ * surface. Lower and the face falls into shade; higher and the relief stops casting shadows.
+ */
+const RAKING_KEY = { right: 1.4, up: 0.5, towardCamera: 0.5 };
+
+/** Position of the key softbox for a preset, around the point the camera looks at. */
+export function keyLightPosition(
+  preset: CameraPreset,
+  target: THREE.Vector3,
+  extent: number
+): [number, number, number] {
+  if (preset.key === 'catalogue') {
+    // Softbox key up and to the camera's right. Authored for the default three-quarter shot,
+    // then rotated with the camera so every preset keeps the same catalogue lighting.
+    const rig = studioRigQuaternion(preset.azimuth, preset.elevation);
+    return rotateStudioPoint(extent * 1.1, extent * 1.4, extent * 0.9, target, rig);
+  }
+  const toCamera = cameraDirection(preset.azimuth, preset.elevation);
+  const right = new THREE.Vector3(0, 1, 0).cross(toCamera).normalize();
+  const up = toCamera.clone().cross(right);
+  const point = target
+    .clone()
+    .addScaledVector(right, extent * RAKING_KEY.right)
+    .addScaledVector(up, extent * RAKING_KEY.up)
+    .addScaledVector(toCamera, extent * RAKING_KEY.towardCamera);
   return [point.x, point.y, point.z];
 }
 
