@@ -9,12 +9,21 @@ import {
   listProfileSheets,
   loadProfileSheet,
   saveProfileSheet,
+  SHEET_FIELD_LABEL,
   type ProfileSheetListItem,
+  type SheetField,
 } from './netsuite/profileSheet';
 
 function sheetIdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get('psid');
 }
+
+/** ?field=knife edits the sheet's knife template; otherwise the editor works on the profile drawing. */
+function sheetFieldFromUrl(): SheetField {
+  return new URLSearchParams(window.location.search).get('field') === 'knife' ? 'knife' : 'profile';
+}
+
+const nsField = sheetFieldFromUrl();
 
 function setSheetInUrl(id: string) {
   const url = new URL(window.location.href);
@@ -39,11 +48,16 @@ function App() {
     const id = sheetIdFromUrl();
     if (!id) return;
     setNsBusy(true);
-    loadProfileSheet(id)
+    loadProfileSheet(id, nsField)
       .then((sheet) => {
         setNsSheet({ id: sheet.id, name: sheet.name });
         setNsDxf(sheet.dxf);
-        setStatus(sheet.dxf ? `Opened ${sheet.name || `Sheet ${sheet.id}`}` : `${sheet.name || `Sheet ${sheet.id}`} has no DXF yet`);
+        const label = sheet.name || `Sheet ${sheet.id}`;
+        setStatus(
+          sheet.dxf
+            ? `Opened ${SHEET_FIELD_LABEL[nsField].toLowerCase()} of ${label}`
+            : `${label} has no ${SHEET_FIELD_LABEL[nsField].toLowerCase()} yet`
+        );
       })
       .catch((error: unknown) => {
         setStatus(`NetSuite load failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -56,7 +70,7 @@ function App() {
     setLibraryError(null);
     setNsBusy(true);
     try {
-      setLibrarySheets(await listProfileSheets());
+      setLibrarySheets(await listProfileSheets(nsField));
     } catch (error: unknown) {
       setLibraryError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -74,15 +88,16 @@ function App() {
     async (sheet: ProfileSheetListItem) => {
       setNsBusy(true);
       try {
-        const loaded = await loadProfileSheet(sheet.id);
+        const loaded = await loadProfileSheet(sheet.id, nsField);
         const imported = sketchCanvasRef.current?.replaceFromDxf(loaded.dxf) ?? 0;
         setNsSheet({ id: loaded.id, name: loaded.name });
         setSheetInUrl(loaded.id);
         setLibraryMode(null);
+        const label = loaded.name || `Sheet ${loaded.id}`;
         setStatus(
           imported
-            ? `Opened ${loaded.name || `Sheet ${loaded.id}`}`
-            : `${loaded.name || `Sheet ${loaded.id}`} has no DXF yet`
+            ? `Opened ${SHEET_FIELD_LABEL[nsField].toLowerCase()} of ${label}`
+            : `${label} has no ${SHEET_FIELD_LABEL[nsField].toLowerCase()} yet`
         );
       } catch (error: unknown) {
         setStatus(`NetSuite load failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -98,12 +113,14 @@ function App() {
       setNsBusy(true);
       try {
         const dxf = sketchCanvasRef.current?.exportDxfText() ?? '';
-        const result = await saveProfileSheet(sheet.id, dxf);
+        const result = await saveProfileSheet(sheet.id, nsField, dxf);
         setNsSheet({ id: sheet.id, name: sheet.name });
         setSheetInUrl(sheet.id);
         setLibrarySheets((rows) => rows.map((row) => (row.id === sheet.id ? { ...row, hasDxf: dxf.length > 0 } : row)));
         setLibraryMode(null);
-        setStatus(`Saved ${result.chars} characters to ${sheet.name || `Sheet ${sheet.id}`}`);
+        setStatus(
+          `Saved ${SHEET_FIELD_LABEL[nsField].toLowerCase()} (${result.chars} characters) to ${sheet.name || `Sheet ${sheet.id}`}`
+        );
       } catch (error: unknown) {
         setStatus(`NetSuite save failed: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
@@ -118,7 +135,7 @@ function App() {
     async (sheet: ProfileSheetListItem) => {
       if (sheet.hasDxf && sheet.id !== nsSheet?.id) {
         const label = sheet.name || `Sheet ${sheet.id}`;
-        if (!window.confirm(`Replace the drawing already on ${label}?`)) return;
+        if (!window.confirm(`Replace the ${SHEET_FIELD_LABEL[nsField].toLowerCase()} already on ${label}?`)) return;
       }
       await saveToSheet(sheet);
     },
@@ -138,6 +155,7 @@ function App() {
           onRedo={() => sketchCanvasRef.current?.redo()}
           onCheckJoins={() => sketchCanvasRef.current?.checkJoins()}
           nsSheet={nsSheet}
+          nsField={nsField}
           onOpenLibrary={() => void openLibrary('open')}
           onSave={nsSheet ? () => void saveToSheet(nsSheet) : undefined}
           onSaveAs={() => void openLibrary('save')}
@@ -161,6 +179,7 @@ function App() {
       {libraryMode && (
         <ProfileLibraryDialog
           mode={libraryMode}
+          field={nsField}
           sheets={librarySheets}
           currentId={nsSheet?.id}
           busy={nsBusy}

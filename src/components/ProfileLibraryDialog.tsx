@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { ProfileSheetListItem } from '../netsuite/profileSheet';
+import { SHEET_FIELD_LABEL, type ProfileSheetListItem, type SheetField } from '../netsuite/profileSheet';
 
 interface ProfileLibraryDialogProps {
   mode: 'open' | 'save';
+  /** Which drawing on the sheet is being opened or saved; "has a drawing" refers to this one. */
+  field: SheetField;
   sheets: ProfileSheetListItem[];
   currentId?: string | null;
   busy?: boolean;
@@ -13,6 +15,7 @@ interface ProfileLibraryDialogProps {
 
 const ProfileLibraryDialog: React.FC<ProfileLibraryDialogProps> = ({
   mode,
+  field,
   sheets,
   currentId,
   busy,
@@ -20,6 +23,7 @@ const ProfileLibraryDialog: React.FC<ProfileLibraryDialogProps> = ({
   onPick,
   onClose,
 }) => {
+  const drawing = SHEET_FIELD_LABEL[field].toLowerCase();
   const [query, setQuery] = useState('');
   const [drawingsOnly, setDrawingsOnly] = useState(mode === 'open');
 
@@ -51,12 +55,12 @@ const ProfileLibraryDialog: React.FC<ProfileLibraryDialogProps> = ({
       >
         <div className="border-b border-gray-200 px-5 pt-5 pb-3">
           <h2 id="profile-library-title" className="text-base font-semibold">
-            {mode === 'open' ? 'Open Profile Sheet' : 'Save to Profile Sheet'}
+            {mode === 'open' ? `Open ${drawing}` : `Save ${drawing} to Profile Sheet`}
           </h2>
           <p className="mt-1 text-gray-600">
             {mode === 'open'
-              ? 'Sheets that already have a drawing. Creating a new sheet is not available yet.'
-              : 'Save this drawing onto an existing sheet. Creating a new sheet is not available yet.'}
+              ? `Sheets that already have a ${drawing}. Creating a new sheet is not available yet.`
+              : `Save this as the ${drawing} of an existing sheet. Creating a new sheet is not available yet.`}
           </p>
           <input
             type="search"
@@ -68,7 +72,7 @@ const ProfileLibraryDialog: React.FC<ProfileLibraryDialogProps> = ({
           />
           <label className="mt-2 flex items-center gap-2 text-gray-700">
             <input type="checkbox" checked={drawingsOnly} onChange={(e) => setDrawingsOnly(e.target.checked)} />
-            Only sheets with a drawing
+            Only sheets with a {drawing}
           </label>
         </div>
 

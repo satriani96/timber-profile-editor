@@ -1,5 +1,6 @@
 import React from 'react';
 import type { SketchTool } from '../types';
+import { SHEET_FIELD_LABEL, type SheetField } from '../netsuite/profileSheet';
 
 interface ToolbarProps {
   activeTool: SketchTool;
@@ -11,6 +12,8 @@ interface ToolbarProps {
   onRedo: () => void;
   onCheckJoins: () => void;
   nsSheet?: { id: string; name: string } | null;
+  /** Which drawing on the Profile Sheet Open and Save work on. */
+  nsField: SheetField;
   onOpenLibrary?: () => void;
   /** Save back to the loaded Profile Sheet. Absent when no sheet is loaded: then only Save As. */
   onSave?: () => void;
@@ -98,6 +101,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   onCheckJoins,
   nsSheet,
+  nsField,
   onOpenLibrary,
   onSave,
   onSaveAs,
@@ -299,12 +303,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </Icon>
         <span>Export DXF</span>
       </button>
+      <span
+        className={`ml-3 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold ${
+          nsField === 'knife' ? 'bg-amber-200 text-amber-900' : 'bg-gray-700 text-gray-200'
+        }`}
+        title="Which drawing on the Profile Sheet Open and Save work on"
+      >
+        {SHEET_FIELD_LABEL[nsField]}
+      </span>
       {onOpenLibrary && (
         <button
           onClick={onOpenLibrary}
           disabled={nsBusy}
           className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-800 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
-          title="Open a Profile Sheet drawing"
+          title={`Open a Profile Sheet ${SHEET_FIELD_LABEL[nsField].toLowerCase()}`}
         >
           <span>Open</span>
         </button>
@@ -316,7 +328,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
             onClick={onSave}
             disabled={nsBusy}
             className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white pl-3 pr-2 py-1 rounded-l-md"
-            title={`Save this drawing back to ${nsSheet.name || `Sheet ${nsSheet.id}`}`}
+            title={`Save this ${SHEET_FIELD_LABEL[nsField].toLowerCase()} back to ${nsSheet.name || `Sheet ${nsSheet.id}`}`}
           >
             {nsBusy ? 'Saving…' : 'Save'}
           </button>
@@ -354,7 +366,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onSaveAs}
           disabled={nsBusy}
           className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900 text-white px-3 py-1 rounded-md flex items-center space-x-1 ml-2"
-          title="Save this drawing to a Profile Sheet"
+          title={`Save this ${SHEET_FIELD_LABEL[nsField].toLowerCase()} to a Profile Sheet`}
         >
           <span>{nsBusy ? 'Saving…' : 'Save As…'}</span>
         </button>

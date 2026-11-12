@@ -94,9 +94,10 @@ export default async function handler(req, res) {
 
     if (method === 'GET') {
       const id = queryValue(req.query, 'id');
+      const field = queryValue(req.query, 'field');
       const ns = id
-        ? await callRestlet('GET', { id })
-        : await callRestlet('GET', { list: '1' });
+        ? await callRestlet('GET', { id, field })
+        : await callRestlet('GET', { list: '1', field });
       const parsed = parseNs(ns.text);
       send(res, ns.status >= 400 || parsed.ok === false ? 400 : 200, parsed);
       return;
@@ -108,7 +109,7 @@ export default async function handler(req, res) {
         send(res, 400, { ok: false, error: 'id required' });
         return;
       }
-      const ns = await callRestlet('PUT', {}, { id: body.id, dxf: body.dxf ?? '' });
+      const ns = await callRestlet('PUT', {}, { id: body.id, field: body.field, dxf: body.dxf ?? '' });
       const parsed = parseNs(ns.text);
       send(res, ns.status >= 400 || parsed.ok === false ? 400 : 200, parsed);
       return;
